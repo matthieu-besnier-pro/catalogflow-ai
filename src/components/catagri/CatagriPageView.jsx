@@ -1,0 +1,138 @@
+import React from 'react';
+import CatagriProductCard from './CatagriProductCard';
+
+const FILIALE_COLORS = {
+  none:          { primary: '#1a2744', accent: '#cc0000' },
+  agrimontauban: { primary: '#1a2744', accent: '#f5c518' },
+  agrisanterre:  { primary: '#c0392b', accent: '#c0392b' },
+  migaud:        { primary: '#1a1a1a', accent: '#c0392b' },
+  sicloe:        { primary: '#1a2744', accent: '#f5c518' },
+  gonninduris:   { primary: '#044578', accent: '#FCC72F' },
+  agrizone:      { primary: '#0265A9', accent: '#E0592A' },
+  tmc:           { primary: '#1a1a1a', accent: '#E9530E' },
+};
+
+const FILIALE_NAMES = {
+  none: '',
+  agrimontauban: 'AGRI MONTAUBAN',
+  agrisanterre:  'AGRI SANTERRE',
+  migaud:        'MIGAUD',
+  sicloe:        'SICLOE',
+  gonninduris:   'GONNIN DURIS',
+  agrizone:      'AGRIZONE',
+  tmc:           'TMC',
+};
+
+export default function CatagriPageView({ products, opts, coverData, isFirstPage }) {
+  const filiale = opts.filiale || 'none';
+  const colors = FILIALE_COLORS[filiale] || FILIALE_COLORS.none;
+  const filialeName = FILIALE_NAMES[filiale] || '';
+
+  // Page A4 portrait simulée : 794px × 1123px à 96dpi
+  const PAGE_W = 794;
+  const PAGE_H = 1123;
+
+  // Grid
+  const cols = opts.cols || 4;
+  const gridStyle = {
+    display: 'grid',
+    gridTemplateColumns: `repeat(${cols}, 1fr)`,
+    gap: '8px',
+  };
+
+  return (
+    <div
+      style={{
+        width: PAGE_W,
+        minHeight: PAGE_H,
+        background: '#fff',
+        boxShadow: '0 4px 32px rgba(0,0,0,0.18)',
+        borderRadius: 4,
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        fontFamily: "'Inter', Arial, sans-serif",
+      }}
+    >
+      {/* En-tête de page */}
+      <div
+        style={{
+          background: colors.primary,
+          color: '#fff',
+          padding: '10px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexShrink: 0,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div
+            style={{
+              width: 6,
+              height: 28,
+              background: colors.accent,
+              borderRadius: 2,
+              flexShrink: 0,
+            }}
+          />
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 15, letterSpacing: 1, textTransform: 'uppercase' }}>
+              {filialeName || coverData?.title || 'CATALOGUE'}
+            </div>
+            <div style={{ fontSize: 10, opacity: 0.7, marginTop: 1 }}>
+              {coverData?.title}{filialeName ? ` · ${coverData?.title}` : ''}
+            </div>
+          </div>
+        </div>
+        <div style={{
+          background: colors.accent,
+          color: '#fff',
+          fontWeight: 700,
+          fontSize: 11,
+          padding: '3px 10px',
+          borderRadius: 3,
+          textTransform: 'uppercase',
+          letterSpacing: 0.5,
+        }}>
+          {opts.template}
+        </div>
+      </div>
+
+      {/* Grille produits */}
+      <div style={{ flex: 1, padding: '12px 14px', background: '#f8f8f8' }}>
+        {products.length === 0 ? (
+          <div style={{ textAlign: 'center', color: '#aaa', fontSize: 13, paddingTop: 60 }}>
+            Aucun produit sur cette page
+          </div>
+        ) : (
+          <div style={gridStyle}>
+            {products.map(p => (
+              <CatagriProductCard key={p._id} product={p} colors={colors} template={opts.template} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Pied de page */}
+      <div
+        style={{
+          background: colors.primary,
+          color: 'rgba(255,255,255,0.6)',
+          fontSize: 9,
+          padding: '5px 20px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexShrink: 0,
+        }}
+      >
+        <span>{filialeName || 'CatalogFlowAI'}</span>
+        <span style={{ color: colors.accent, fontWeight: 700, fontSize: 11 }}>
+          {products[0]?.page && `Page ${products[0].page}`}
+        </span>
+        <span>Prix en € HT — Non contractuels</span>
+      </div>
+    </div>
+  );
+}
