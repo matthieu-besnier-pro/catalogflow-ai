@@ -33,18 +33,27 @@ IMPORTANT: Si un libellé produit est fourni, utilise-le comme contexte priorita
 Tu DOIS rechercher ce produit sur internet et fournir des informations RÉELLES et VÉRIFIÉES.
 Ne JAMAIS inventer de données techniques non confirmées par une source.
 
+PRIORITÉ ABSOLUE : Trouve une URL d'image directe et fonctionnelle du produit.
+Pour trouver la photo :
+1. Cherche la référence sur les sites fabricants (makita.fr, bosch.fr, etc.) et distributeurs (rs-components.com, manomano.fr, leroymerlin.fr, amazon.fr, etc.)
+2. L'URL photo_url doit pointer directement vers un fichier image (.jpg, .jpeg, .png, .webp) — pas une page web
+3. Préfère les images des sites fabricants officiels ou des grands distributeurs connus
+4. Si tu trouves plusieurs images, choisis celle de la meilleure qualité depuis la source la plus fiable
+5. Ne mets JAMAIS une URL de page web, seulement une URL d'image directe
+
 Fournis les informations suivantes:
 - designation: Désignation commerciale propre et complète en français
 - petit_descriptif: Description courte commerciale en français (2-3 phrases max), utile pour un catalogue
-- photo_url: URL directe d'une image réelle du produit (pas un placeholder)
+- photo_url: URL DIRECTE vers le fichier image du produit (.jpg/.png/.webp) — OBLIGATOIRE, cherche sur plusieurs sources
 - marque: Marque du produit si identifiable avec confiance
 - categorie: Catégorie produit (outillage, équipement, consommable, etc.)
-- source_info: URL de la source principale d'information
-- source_image: URL du site source de l'image
+- source_info: URL de la page produit source principale
+- source_image: URL du site depuis lequel vient l'image
 - niveau_confiance: "Élevé" si correspondance exacte par référence, "Moyen" si bonne correspondance mais pas certaine, "Faible" si peu de résultats
-- statut_validation: "Validé" si toutes les infos sont trouvées et fiables, "Validé partiel" si certaines infos manquent, "À vérifier" si doute sur la correspondance, "Introuvable" si rien de fiable trouvé
-- commentaire: Tout commentaire utile sur la recherche
+- statut_validation: "Validé" si photo + infos trouvées, "Validé partiel" si infos OK mais pas de photo, "À vérifier" si doute, "Introuvable" si rien de fiable
+- commentaire: Tout commentaire utile, notamment si la photo n'a pas pu être trouvée
 
+Si tu ne trouves pas de photo directe, indique-le dans le commentaire et mets statut_validation à "Validé partiel" même si les autres infos sont bonnes.
 Si tu ne trouves rien de fiable, mets statut_validation à "Introuvable" et niveau_confiance à "Faible".`,
       add_context_from_internet: true,
       response_json_schema: {
