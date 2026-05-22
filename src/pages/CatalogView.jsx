@@ -73,6 +73,11 @@ export default function CatalogView() {
     setEditProduct(null);
   };
 
+  const handleDeleteProduct = async (productId) => {
+    await base44.entities.Product.delete(productId);
+    queryClient.invalidateQueries({ queryKey: ['products', batchId] });
+  };
+
   const handleReenrichProduct = async (productId) => {
     setEnrichingId(productId);
     try {
@@ -183,6 +188,7 @@ export default function CatalogView() {
           <ProductTable
             products={products}
             onEdit={setEditProduct}
+            onDelete={handleDeleteProduct}
             enrichingId={enrichingId}
           />
         )}

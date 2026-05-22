@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Table,
   TableBody,
@@ -9,11 +9,12 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Pencil, AlertTriangle, Loader2 } from "lucide-react";
+import { Pencil, AlertTriangle, Loader2, Trash2 } from "lucide-react";
 import StatusBadge from './StatusBadge';
 import ConfidenceBadge from './ConfidenceBadge';
 
-export default function ProductTable({ products, onEdit, enrichingId }) {
+export default function ProductTable({ products, onEdit, onDelete, enrichingId }) {
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   if (!products || products.length === 0) {
     return (
       <div className="text-center py-16 text-muted-foreground">
@@ -43,7 +44,7 @@ export default function ProductTable({ products, onEdit, enrichingId }) {
                 <TableHead className="font-semibold">Marque</TableHead>
                 <TableHead className="font-semibold">Confiance</TableHead>
                 <TableHead className="font-semibold">Statut</TableHead>
-                <TableHead className="font-semibold w-12"></TableHead>
+                <TableHead className="font-semibold w-20"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -142,14 +143,34 @@ export default function ProductTable({ products, onEdit, enrichingId }) {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={() => onEdit(product)}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => onEdit(product)}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        {confirmDeleteId === product.id ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive hover:bg-destructive/10"
+                            onClick={() => { onDelete(product.id); setConfirmDeleteId(null); }}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-muted-foreground hover:text-destructive"
+                            onClick={() => setConfirmDeleteId(product.id)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
