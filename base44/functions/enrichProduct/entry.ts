@@ -2,19 +2,20 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 const SUPPORTED_IMG_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const BLOCKED_EXT = /\.(avif|pdf|svg|tiff|bmp|ico)(\?.*)?$/i;
+const VALID_IMG_EXT = /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i;
 
 async function validateImageUrl(url) {
   if (!url || typeof url !== 'string') return false;
-  if (BLOCKED_EXT.test(url)) return false;
+  if (BLOCKED_EXT.test(url.split('?')[0])) return false;
   if (url.includes('/fstrz/') || url.includes('/r/s/c/')) return false;
   try {
     const res = await fetch(url, {
       method: 'GET',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Range': 'bytes=0-1023'
+        'Range': 'bytes=0-2047'
       },
-      signal: AbortSignal.timeout(6000)
+      signal: AbortSignal.timeout(7000)
     });
     if (!res.ok) return false;
     const contentType = (res.headers.get('content-type') || '').split(';')[0].trim();
@@ -25,31 +26,65 @@ async function validateImageUrl(url) {
   }
 }
 
-function extractImageUrls(html, baseUrl) {
-  const urls = [];
-  const ogMatches = [
-    ...html.matchAll(/<meta[^>]+(?:property="og:image"|name="og:image")[^>]+content="([^"]+)"/gi),
-    ...html.matchAll(/<meta[^>]+content="([^"]+)"[^>]+property="og:image"/gi)
-  ];
-  for (const m of ogMatches) urls.push(m[1]);
+// Scrape Google Images et retourne les premières URLs d'images directes valides
+async function fetchGoogleImages(query) {
+  try {
+    const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&tbm=isch&hl=fr&gl=fr`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+        'Accept-Encoding': 'gzip, deflate',
+        'Cache-Control': 'no-cache'
+      },
+      signal: AbortSignal.timeout(12000)
+    });
+    if (!res.ok) return [];
+    const html = await res.text();
 
-  const imgMatches = [...html.matchAll(/<img[^>]+(?:data-src|src)="([^"]+)"/gi)];
-  for (const m of imgMatches) {
-    const src = m[1];
-    const abs = src.startsWith('http') ? src : `${baseUrl}${src.startsWith('/') ? '' : '/'}${src}`;
-    urls.push(abs);
+    const candidates = new Set();
+
+    // Pattern 1 : URLs dans les blocs JSON embarqués (format Google Images)
+    // Google stocke les URLs d'images dans des chaînes JSON type ["https://...jpg",123,456]
+    const jsonImgPattern = /\["(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp)(?:\?[^"]*)?)"(?:,\d+,\d+)?\]/gi;
+    let m;
+    while ((m = jsonImgPattern.exec(html)) !== null) {
+      candidates.add(m[1]);
+    }
+
+    // Pattern 2 : \x22https://...\x22 (encodage Google)
+    const hexPattern = /\\x22(https?:\/\/[^\\]+\.(?:jpg|jpeg|png|webp)(?:\?[^\\]*)?)\\/gi;
+    while ((m = hexPattern.exec(html)) !== null) {
+      candidates.add(m[1]);
+    }
+
+    // Pattern 3 : URLs directes dans les attributs src/data-src
+    const srcPattern = /(?:src|data-src)="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp)(?:\?[^"]*)?)"/gi;
+    while ((m = srcPattern.exec(html)) !== null) {
+      const u = m[1];
+      if (!u.includes('gstatic.com') && !u.includes('google.com')) {
+        candidates.add(u);
+      }
+    }
+
+    // Filtre : exclure miniatures Google (gstatic), logos, placeholders
+    const filtered = [...candidates].filter(u =>
+      !u.includes('gstatic.com') &&
+      !u.includes('google.com') &&
+      !u.includes('placeholder') &&
+      !u.includes('logo') &&
+      !BLOCKED_EXT.test(u.split('?')[0]) &&
+      u.length > 40
+    );
+
+    return filtered.slice(0, 10); // On garde les 10 premières candidates
+  } catch {
+    return [];
   }
-
-  return [...new Set(urls)].filter(u =>
-    /\.(jpg|jpeg|png|webp|gif)(\?[^"]*)?$/i.test(u.split('?')[0]) &&
-    !BLOCKED_EXT.test(u) &&
-    !u.includes('/fstrz/') &&
-    !u.includes('placeholder') &&
-    !u.includes('logo') &&
-    u.length > 30
-  );
 }
 
+// Scrape Agrizone pour trouver une image produit
 async function fetchAgrizoneImage(reference) {
   try {
     const headers = {
@@ -65,30 +100,31 @@ async function fetchAgrizoneImage(reference) {
     if (!searchRes.ok) return null;
     const searchHtml = await searchRes.text();
 
-    const linkPatterns = [
-      /href="(https?:\/\/www\.agrizone\.net\/[^"]+\.html)"/gi,
-      /href="(\/[a-z0-9-]+\.html)"/gi
-    ];
-    let productUrl = null;
-    for (const pattern of linkPatterns) {
-      const match = searchHtml.match(pattern);
-      if (match) {
-        const href = match[0].match(/href="([^"]+)"/)[1];
-        productUrl = href.startsWith('http') ? href : `https://www.agrizone.net${href}`;
-        break;
-      }
-    }
-    if (!productUrl) return null;
+    // Trouve le premier lien produit Agrizone
+    const linkMatch = searchHtml.match(/href="(https?:\/\/www\.agrizone\.net\/[^"]+\.html)"/i);
+    if (!linkMatch) return null;
+    const productUrl = linkMatch[1];
 
     const productRes = await fetch(productUrl, { headers, signal: AbortSignal.timeout(10000) });
     if (!productRes.ok) return null;
     const productHtml = await productRes.text();
 
-    const candidates = extractImageUrls(productHtml, 'https://www.agrizone.net');
-    for (const url of candidates) {
-      const valid = await validateImageUrl(url);
-      if (valid) return { url, source: productUrl };
+    // Cherche og:image en priorité
+    const ogMatch = productHtml.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i)
+                 || productHtml.match(/<meta[^>]+content="([^"]+)"[^>]+property="og:image"/i);
+    if (ogMatch && VALID_IMG_EXT.test(ogMatch[1].split('?')[0]) && !BLOCKED_EXT.test(ogMatch[1])) {
+      const valid = await validateImageUrl(ogMatch[1]);
+      if (valid) return { url: ogMatch[1], source: productUrl };
     }
+
+    // Cherche les images produit dans le HTML
+    const imgMatches = [...productHtml.matchAll(/(?:src|data-src)="(https?:\/\/[^"]*agrizone[^"]+\.(?:jpg|jpeg|png|webp))"/gi)];
+    for (const im of imgMatches) {
+      if (im[1].includes('placeholder') || im[1].includes('logo')) continue;
+      const valid = await validateImageUrl(im[1]);
+      if (valid) return { url: im[1], source: productUrl };
+    }
+
     return null;
   } catch {
     return null;
@@ -112,38 +148,26 @@ Deno.serve(async (req) => {
       ? `${product.reference} ${product.intitule_origine}`
       : product.reference;
 
-    // Étape 1 : Agrizone scraping + LLM info en parallèle
-    const [agrizoneResult, enrichmentResult] = await Promise.all([
+    // Étape 1 : Scraping Agrizone + Google Images + LLM en parallèle
+    const [agrizoneResult, googleImageUrls, enrichmentResult] = await Promise.all([
       fetchAgrizoneImage(product.reference),
+      fetchGoogleImages(searchQuery),
       base44.asServiceRole.integrations.Core.InvokeLLM({
-        prompt: `Tu es un expert en recherche de produits industriels et agricoles.
-Recherche sur internet ce produit et retourne les informations demandées.
+        prompt: `Tu es un expert en produits industriels et agricoles.
+Recherche ce produit sur internet et retourne ses informations commerciales.
 - Référence: ${product.reference}
-- Libellé produit: ${product.intitule_origine || 'non fourni'}
-
-IMPORTANT pour photo_url : Fais une recherche Google Images avec la requête "${searchQuery}" et retourne l'URL DIRECTE de la première image de produit trouvée.
-L'URL doit :
-- Pointer directement vers un fichier image (.jpg, .jpeg, .png, .webp)
-- Être accessible publiquement (pas de redirection, pas de page web)
-- Se terminer par .jpg, .jpeg, .png ou .webp
-- EXCLURE les formats .avif, .svg, .pdf
-
-Exemples d'URLs valides :
-- https://www.mecaservicesshop.fr/428541-large_default/humidimetre-wile.jpg
-- https://cdn.example.com/images/produit-reference.jpg
-
-Cherche sur : Google Images, agrizone.net, mecaservicesshop.fr, sites fabricants officiels.
+- Libellé: ${product.intitule_origine || 'non fourni'}
 
 Fournis :
 - designation: Désignation commerciale complète en français
 - petit_descriptif: Description courte (2-3 phrases) pour catalogue professionnel
-- photo_url: URL directe image (.jpg/.png/.webp) — la première image trouvée sur Google Images ou site distributeur
+- photo_url: laisse VIDE (sera rempli automatiquement)
 - marque: Marque identifiée
 - categorie: Catégorie produit précise
-- source_info: URL de la page produit
-- source_image: Nom du site source de l'image
+- source_info: URL de la page produit officielle
+- source_image: laisse VIDE
 - niveau_confiance: "Élevé" si ref exacte, "Moyen" si bonne correspondance, "Faible" sinon
-- statut_validation: "Validé" si photo+infos OK, "Validé partiel" si infos sans photo, "À vérifier" si doute, "Introuvable" si rien
+- statut_validation: "Validé" si infos OK, "Validé partiel" si partiel, "À vérifier" si doute, "Introuvable" si rien
 - commentaire: Remarques sur la correspondance`,
         add_context_from_internet: true,
         response_json_schema: {
@@ -164,28 +188,29 @@ Fournis :
       })
     ]);
 
-    // Étape 2 : Sélection de la meilleure image validée
-    // Priorité : Agrizone (scrapée) > LLM (validée) > LLM (non validée, fallback)
+    // Étape 2 : Sélection de la meilleure image
+    // Priorité : Agrizone (scrapée) > Google Images (première valide) > rien
     let finalPhotoUrl = '';
     let finalSourceImage = '';
 
     if (agrizoneResult) {
       finalPhotoUrl = agrizoneResult.url;
       finalSourceImage = 'agrizone.net';
-    } else if (enrichmentResult.photo_url) {
-      const isValid = await validateImageUrl(enrichmentResult.photo_url);
-      if (isValid) {
-        finalPhotoUrl = enrichmentResult.photo_url;
-        finalSourceImage = enrichmentResult.source_image || '';
-      } else {
-        // Fallback : garde l'URL même non validée (peut fonctionner côté navigateur)
-        finalPhotoUrl = enrichmentResult.photo_url;
-        finalSourceImage = enrichmentResult.source_image || '';
+    } else {
+      // Valide les candidates Google Images en parallèle (max 5 en même temps)
+      const toTest = googleImageUrls.slice(0, 5);
+      const results = await Promise.all(toTest.map(u => validateImageUrl(u).then(ok => ok ? u : null)));
+      const firstValid = results.find(u => u !== null);
+      if (firstValid) {
+        finalPhotoUrl = firstValid;
+        finalSourceImage = 'google-images';
+        // Tente d'identifier le domaine source
+        try {
+          const domain = new URL(firstValid).hostname.replace('www.', '');
+          finalSourceImage = domain;
+        } catch {}
       }
     }
-
-    const llmComment = enrichmentResult.commentaire || '';
-    const finalComment = llmComment;
 
     const updateData = {
       designation: enrichmentResult.designation || '',
@@ -196,8 +221,10 @@ Fournis :
       source_info: enrichmentResult.source_info || '',
       source_image: finalSourceImage,
       niveau_confiance: enrichmentResult.niveau_confiance || 'Faible',
-      statut_validation: enrichmentResult.statut_validation || 'À vérifier',
-      commentaire: finalComment,
+      statut_validation: finalPhotoUrl
+        ? enrichmentResult.statut_validation || 'Validé partiel'
+        : (enrichmentResult.statut_validation === 'Validé' ? 'Validé partiel' : enrichmentResult.statut_validation || 'À vérifier'),
+      commentaire: enrichmentResult.commentaire || '',
       enriched: true
     };
 
