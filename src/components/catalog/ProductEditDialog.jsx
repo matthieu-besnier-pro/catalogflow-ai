@@ -32,7 +32,7 @@ export default function ProductEditDialog({ product, open, onClose, onSave, onRe
 
   const handleReenrich = async () => {
     setIsReenriching(true);
-    await onSave(form);
+    await onSave(form, true); // keepOpen=true pour ne pas fermer le dialog
     await onReenrich(form.id);
     setIsReenriching(false);
   };
