@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Sparkles, Loader2 } from "lucide-react";
+import { ArrowLeft, Sparkles, Loader2, X } from "lucide-react";
 import ProductTable from '../components/catalog/ProductTable';
 import ProductEditDialog from '../components/catalog/ProductEditDialog';
 import EnrichmentProgress from '../components/catalog/EnrichmentProgress';
@@ -17,6 +17,7 @@ export default function CatalogView() {
   const [isEnriching, setIsEnriching] = useState(false);
   const [enrichingId, setEnrichingId] = useState(null);
   const [enrichProgress, setEnrichProgress] = useState({ current: 0, total: 0, currentName: '' });
+  const cancelEnrichRef = useRef(false);
 
   const { data: batch } = useQuery({
     queryKey: ['batch', batchId],
@@ -34,10 +35,13 @@ export default function CatalogView() {
     const toEnrich = products.filter(p => !p.enriched);
     if (toEnrich.length === 0) return;
 
+    cancelEnrichRef.current = false;
     setIsEnriching(true);
     setEnrichProgress({ current: 0, total: toEnrich.length, currentName: '' });
 
     for (let i = 0; i < toEnrich.length; i++) {
+      if (cancelEnrichRef.current) break;
+
       const product = toEnrich[i];
       setEnrichingId(product.id);
       setEnrichProgress({
@@ -52,13 +56,13 @@ export default function CatalogView() {
         console.error(`Erreur enrichissement ${product.reference}:`, err);
       }
 
-      // Refresh products after each enrichment
       queryClient.invalidateQueries({ queryKey: ['products', batchId] });
     }
 
     setEnrichProgress(prev => ({ ...prev, current: toEnrich.length }));
     setIsEnriching(false);
     setEnrichingId(null);
+    cancelEnrichRef.current = false;
     queryClient.invalidateQueries({ queryKey: ['batch', batchId] });
   }, [products, batchId, queryClient]);
 
@@ -103,6 +107,16 @@ export default function CatalogView() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {isEnriching && (
+              <Button
+                variant="outline"
+                onClick={() => { cancelEnrichRef.current = true; }}
+                className="gap-2 border-destructive/50 text-destructive hover:bg-destructive/5"
+              >
+                <X className="w-4 h-4" />
+                Annuler
+              </Button>
+            )}
             {unenrichedCount > 0 && (
               <Button
                 onClick={enrichAll}
