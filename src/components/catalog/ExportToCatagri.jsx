@@ -8,10 +8,10 @@ export default function ExportToCatagri({ products, batchName, open, onClose }) 
   const [template, setTemplate] = useState('catalogue');
   const [density, setDensity] = useState('16');
   const [cols, setCols] = useState('4');
-  const [filiale, setFiliale] = useState('');
+  const [filiale, setFiliale] = useState('none');
 
   const FILIALES = [
-    { id: '', name: '— Sans filiale —', primary: '#1a2744', accent: '#cc0000' },
+    { id: 'none', name: '— Sans filiale —', primary: '#1a2744', accent: '#cc0000' },
     { id: 'agrimontauban', name: 'Agri Montauban', primary: '#1a2744', accent: '#f5c518' },
     { id: 'agrisanterre', name: 'Agri Santerre', primary: '#c0392b', accent: '#c0392b' },
     { id: 'migaud', name: 'Migaud', primary: '#1a1a1a', accent: '#c0392b' },
@@ -52,7 +52,7 @@ export default function ExportToCatagri({ products, batchName, open, onClose }) 
         sub: new Date().getFullYear().toString(),
         img: '', backTitle: '', backInfo: '', backImg: ''
       },
-      filiale: filiale || null,
+      filiale: filiale === 'none' ? null : filiale,
       format: 'a4p',
       density: parseInt(density),
       template,
