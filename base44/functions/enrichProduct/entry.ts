@@ -205,8 +205,11 @@ Fournis :
 
     const batchProducts = await base44.entities.Product.filter({ batch_id: product.batch_id });
     const enrichedCount = batchProducts.filter(p => p.enriched || p.id === productId).length;
+    const batchArr = await base44.entities.CatalogBatch.filter({ id: product.batch_id });
+    const currentCredits = batchArr[0]?.credits_used || 0;
     await base44.entities.CatalogBatch.update(product.batch_id, {
       processed_products: enrichedCount,
+      credits_used: currentCredits + 1,
       status: enrichedCount >= batchProducts.length ? 'termine' : 'en_cours'
     });
 

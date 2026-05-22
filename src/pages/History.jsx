@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Plus, Package, Clock, ChevronRight, Loader2 } from "lucide-react";
+import { ArrowLeft, Plus, Package, Clock, ChevronRight, Loader2, Zap } from "lucide-react";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { motion } from 'framer-motion';
@@ -95,6 +95,12 @@ export default function History() {
                           {batch.processed_products > 0 && (
                             <span>
                               {batch.processed_products}/{batch.total_products} enrichis
+                            </span>
+                          )}
+                          {batch.credits_used > 0 && (
+                            <span className="flex items-center gap-1 text-primary font-medium">
+                              <Zap className="w-3 h-3" />
+                              {batch.credits_used} crédit{batch.credits_used > 1 ? 's' : ''}
                             </span>
                           )}
                         </div>

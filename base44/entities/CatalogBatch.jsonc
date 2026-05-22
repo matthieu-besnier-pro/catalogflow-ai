@@ -27,6 +27,11 @@
     "raw_input": {
       "type": "string",
       "description": "Texte brut coll\u00e9 par l'utilisateur"
+    },
+    "credits_used": {
+      "type": "number",
+      "default": 0,
+      "description": "Nombre de cr\u00e9dits IA consomm\u00e9s pour ce lot"
     }
   },
   "required": [

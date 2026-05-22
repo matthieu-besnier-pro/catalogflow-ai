@@ -3,11 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Sparkles, RotateCw, Loader2 } from "lucide-react";
+import { ArrowLeft, Sparkles, Loader2 } from "lucide-react";
 import ProductTable from '../components/catalog/ProductTable';
 import ProductEditDialog from '../components/catalog/ProductEditDialog';
 import EnrichmentProgress from '../components/catalog/EnrichmentProgress';
-import ExportButtons from '../components/catalog/ExportButtons';
+import ExportDialog from '../components/catalog/ExportDialog';
 
 export default function CatalogView() {
   const { batchId } = useParams();
@@ -69,6 +69,7 @@ export default function CatalogView() {
     setEditProduct(null);
   };
 
+  const [showExportDialog, setShowExportDialog] = useState(false);
   const unenrichedCount = products.filter(p => !p.enriched).length;
   const hasEnrichedProducts = products.some(p => p.enriched);
 
@@ -107,7 +108,13 @@ export default function CatalogView() {
               </Button>
             )}
             {hasEnrichedProducts && !isEnriching && (
-              <ExportButtons products={products} />
+              <button
+                onClick={() => setShowExportDialog(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium shadow-lg shadow-primary/20 hover:bg-primary/90 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                Exporter (.xlsx + images)
+              </button>
             )}
           </div>
         </div>
@@ -160,6 +167,15 @@ export default function CatalogView() {
         open={!!editProduct}
         onClose={() => setEditProduct(null)}
         onSave={handleSaveProduct}
+      />
+
+      {/* Export dialog */}
+      <ExportDialog
+        open={showExportDialog}
+        onClose={() => setShowExportDialog(false)}
+        products={products}
+        batchId={batchId}
+        batchName={batch?.name}
       />
     </div>
   );
