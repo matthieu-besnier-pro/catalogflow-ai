@@ -8,7 +8,6 @@ import ProductTable from '../components/catalog/ProductTable';
 import ProductEditDialog from '../components/catalog/ProductEditDialog';
 import EnrichmentProgress from '../components/catalog/EnrichmentProgress';
 import ExportDialog from '../components/catalog/ExportDialog';
-import ExportToCatagri from '../components/catalog/ExportToCatagri';
 
 export default function CatalogView() {
   const { batchId } = useParams();
@@ -93,7 +92,6 @@ export default function CatalogView() {
   };
 
   const [showExportDialog, setShowExportDialog] = useState(false);
-  const [showCatagriExport, setShowCatagriExport] = useState(false);
   const unenrichedCount = products.filter(p => !p.enriched).length;
   const hasEnrichedProducts = products.some(p => p.enriched);
 
@@ -143,7 +141,7 @@ export default function CatalogView() {
             )}
             {hasEnrichedProducts && !isEnriching && (
               <button
-                onClick={() => setShowCatagriExport(true)}
+                onClick={() => navigate(`/catagri?batchId=${batchId}`)}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-amber-500 text-white text-sm font-medium shadow-lg hover:bg-amber-600 transition-colors"
               >
                 🎨 Ouvrir dans CAT'AGRI
@@ -211,14 +209,6 @@ export default function CatalogView() {
         onClose={() => setEditProduct(null)}
         onSave={handleSaveProduct}
         onReenrich={handleReenrichProduct}
-      />
-
-      {/* CAT'AGRI export */}
-      <ExportToCatagri
-        open={showCatagriExport}
-        onClose={() => setShowCatagriExport(false)}
-        products={products}
-        batchName={batch?.name}
       />
 
       {/* Export dialog */}
