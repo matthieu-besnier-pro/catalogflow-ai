@@ -2,8 +2,8 @@ import React, { useState, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
-import { Upload, ClipboardPaste, FileSpreadsheet, ArrowRight, Loader2 } from "lucide-react";
-import { motion } from "framer-motion";
+import { Upload, ClipboardPaste, FileSpreadsheet, ArrowRight, Loader2, Zap, AlertTriangle } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 export default function ImportZone({ onImport, isLoading }) {
   const [rawText, setRawText] = useState('');
@@ -112,7 +112,23 @@ export default function ImportZone({ onImport, isLoading }) {
             </div>
           )}
 
-          <div className="mt-6 flex justify-end">
+          <AnimatePresence>
+            {lineCount > 0 && !isLoading && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="mt-4 flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm"
+              >
+                <Zap className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+                <p className="text-amber-800">
+                  <span className="font-semibold">{lineCount} crédit{lineCount > 1 ? 's' : ''} IA</span> seront consommés pour enrichir {lineCount} produit{lineCount > 1 ? 's' : ''}.
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div className="mt-4 flex justify-end">
             <Button
               size="lg"
               disabled={!rawText.trim() || isLoading}

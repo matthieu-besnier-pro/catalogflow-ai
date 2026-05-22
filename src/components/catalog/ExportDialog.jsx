@@ -20,22 +20,15 @@ export default function ExportDialog({ open, onClose, products, batchId, batchNa
     setIsExporting(true);
     try {
       const res = await base44.functions.invoke('exportCatalog', { batchId, imageNaming });
-      const { base64, filename } = res.data;
+      const { file_url, filename } = res.data;
 
-      // Decode base64 to binary and create blob
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const blob = new Blob([bytes], { type: 'application/zip' });
-
-      const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = objectUrl;
+      a.href = file_url;
       a.download = filename || `catalogue_export.zip`;
+      a.target = '_blank';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(objectUrl);
       onClose();
     } catch (err) {
       console.error('Export error:', err);

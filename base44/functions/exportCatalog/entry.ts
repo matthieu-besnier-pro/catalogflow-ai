@@ -45,7 +45,6 @@ Deno.serve(async (req) => {
 
     // Helper: escape XML
     const xe = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
     const colLetter = (n) => { let s = ''; while (n > 0) { s = String.fromCharCode(65 + ((n-1) % 26)) + s; n = Math.floor((n-1) / 26); } return s; };
 
     const buildSheet = (dataRows, headers) => {
@@ -147,7 +146,7 @@ Deno.serve(async (req) => {
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
 </Relationships>`;
 
-    // Build XLSX zip using fflate
+    // Build XLSX using fflate
     const xlsxFiles = {
       '[Content_Types].xml': strToU8(contentTypesXml),
       '_rels/.rels': strToU8(rootRelsXml),
@@ -158,7 +157,7 @@ Deno.serve(async (req) => {
     };
     const xlsxBuffer = zipSync(xlsxFiles, { level: 0 });
 
-    // Build outer ZIP with Excel + images using fflate
+    // Build outer ZIP with Excel + images
     const outerFiles = {
       'catalogue.xlsx': xlsxBuffer,
     };
@@ -172,15 +171,17 @@ Deno.serve(async (req) => {
 
     const zipBuffer = zipSync(outerFiles, { level: 0 });
 
-    // Convert to base64 in chunks to avoid stack overflow
-    const CHUNK = 8192;
-    let base64 = '';
-    for (let i = 0; i < zipBuffer.length; i += CHUNK) {
-      base64 += btoa(String.fromCharCode(...zipBuffer.subarray(i, i + CHUNK)));
-    }
-
+    // Upload ZIP and return a public URL instead of base64 (avoids truncation by invoke())
     const safeName = (batch.name || 'catalogue').replace(/[^a-z0-9]/gi, '_');
-    return Response.json({ base64, filename: `${safeName}_export.zip` });
+    const filename = `${safeName}_export.zip`;
+
+    const formData = new FormData();
+    const blob = new Blob([zipBuffer], { type: 'application/zip' });
+    formData.append('file', blob, filename);
+
+    const uploadResult = await base44.asServiceRole.integrations.Core.UploadFile({ file: formData.get('file') });
+
+    return Response.json({ file_url: uploadResult.file_url, filename });
   } catch (error) {
     return Response.json({ error: error.message }, { status: 500 });
   }
