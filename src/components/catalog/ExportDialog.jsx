@@ -19,23 +19,19 @@ export default function ExportDialog({ open, onClose, products, batchId, batchNa
   const handleExport = async () => {
     setIsExporting(true);
     try {
-      const res = await base44.functions.fetch('exportCatalog', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batchId, imageNaming })
-      });
+      const res = await base44.functions.invoke('exportCatalog', { batchId, imageNaming });
+      const { base64, filename } = res.data;
 
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Erreur export (${res.status}): ${errText}`);
-      }
+      // Decode base64 to binary and create blob
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: 'application/zip' });
 
-      const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = objectUrl;
-      const safeName = (batchName || 'catalogue').replace(/[^a-z0-9]/gi, '_');
-      a.download = `${safeName}_export.zip`;
+      a.download = filename || `catalogue_export.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

@@ -277,14 +277,14 @@ Deno.serve(async (req) => {
     let pos = 0;
     for (const part of zipParts) { zipBuffer.set(part, pos); pos += part.length; }
 
+    // Encode as base64 for JSON transport (invoke() doesn't support binary responses)
+    let binary = '';
+    for (let i = 0; i < zipBuffer.length; i++) {
+      binary += String.fromCharCode(zipBuffer[i]);
+    }
+    const base64 = btoa(binary);
     const safeName = (batch.name || 'catalogue').replace(/[^a-z0-9]/gi, '_');
-    return new Response(zipBuffer, {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="${safeName}_export.zip"`
-      }
-    });
+    return Response.json({ base64, filename: `${safeName}_export.zip` });
   } catch (error) {
     return Response.json({ error: error.message }, { status: 500 });
   }
