@@ -26,59 +26,34 @@ async function validateImageUrl(url) {
   }
 }
 
-// Scrape Google Images et retourne les premières URLs d'images directes valides
-async function fetchGoogleImages(query) {
+// Recherche d'images via DuckDuckGo Images API (non-officielle mais fonctionnelle)
+async function fetchDuckDuckGoImages(query) {
   try {
-    const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&tbm=isch&hl=fr&gl=fr`;
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
-        'Accept-Encoding': 'gzip, deflate',
-        'Cache-Control': 'no-cache'
-      },
-      signal: AbortSignal.timeout(12000)
+    // Étape 1 : récupère le token vqd requis par l'API
+    const tokenRes = await fetch(`https://duckduckgo.com/?q=${encodeURIComponent(query)}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      signal: AbortSignal.timeout(8000)
     });
-    if (!res.ok) return [];
-    const html = await res.text();
+    if (!tokenRes.ok) return [];
+    const tokenHtml = await tokenRes.text();
+    const vqdMatch = tokenHtml.match(/vqd=["']?([\d-]+)["']?/);
+    if (!vqdMatch) return [];
+    const vqd = vqdMatch[1];
 
-    const candidates = new Set();
-
-    // Pattern 1 : URLs dans les blocs JSON embarqués (format Google Images)
-    // Google stocke les URLs d'images dans des chaînes JSON type ["https://...jpg",123,456]
-    const jsonImgPattern = /\["(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp)(?:\?[^"]*)?)"(?:,\d+,\d+)?\]/gi;
-    let m;
-    while ((m = jsonImgPattern.exec(html)) !== null) {
-      candidates.add(m[1]);
-    }
-
-    // Pattern 2 : \x22https://...\x22 (encodage Google)
-    const hexPattern = /\\x22(https?:\/\/[^\\]+\.(?:jpg|jpeg|png|webp)(?:\?[^\\]*)?)\\/gi;
-    while ((m = hexPattern.exec(html)) !== null) {
-      candidates.add(m[1]);
-    }
-
-    // Pattern 3 : URLs directes dans les attributs src/data-src
-    const srcPattern = /(?:src|data-src)="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp)(?:\?[^"]*)?)"/gi;
-    while ((m = srcPattern.exec(html)) !== null) {
-      const u = m[1];
-      if (!u.includes('gstatic.com') && !u.includes('google.com')) {
-        candidates.add(u);
+    // Étape 2 : appel API images DDG
+    const imgRes = await fetch(
+      `https://duckduckgo.com/i.js?q=${encodeURIComponent(query)}&vqd=${vqd}&o=json&p=1&s=0&u=bing&f=,,,&l=fr-fr`,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Referer': 'https://duckduckgo.com/'
+        },
+        signal: AbortSignal.timeout(8000)
       }
-    }
-
-    // Filtre : exclure miniatures Google (gstatic), logos, placeholders
-    const filtered = [...candidates].filter(u =>
-      !u.includes('gstatic.com') &&
-      !u.includes('google.com') &&
-      !u.includes('placeholder') &&
-      !u.includes('logo') &&
-      !BLOCKED_EXT.test(u.split('?')[0]) &&
-      u.length > 40
     );
-
-    return filtered.slice(0, 10); // On garde les 10 premières candidates
+    if (!imgRes.ok) return [];
+    const data = await imgRes.json();
+    return (data?.results || []).slice(0, 10).map(r => r.image).filter(Boolean);
   } catch {
     return [];
   }
@@ -100,7 +75,6 @@ async function fetchAgrizoneImage(reference) {
     if (!searchRes.ok) return null;
     const searchHtml = await searchRes.text();
 
-    // Trouve le premier lien produit Agrizone
     const linkMatch = searchHtml.match(/href="(https?:\/\/www\.agrizone\.net\/[^"]+\.html)"/i);
     if (!linkMatch) return null;
     const productUrl = linkMatch[1];
@@ -109,7 +83,7 @@ async function fetchAgrizoneImage(reference) {
     if (!productRes.ok) return null;
     const productHtml = await productRes.text();
 
-    // Cherche og:image en priorité
+    // og:image en priorité
     const ogMatch = productHtml.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i)
                  || productHtml.match(/<meta[^>]+content="([^"]+)"[^>]+property="og:image"/i);
     if (ogMatch && VALID_IMG_EXT.test(ogMatch[1].split('?')[0]) && !BLOCKED_EXT.test(ogMatch[1])) {
@@ -117,7 +91,7 @@ async function fetchAgrizoneImage(reference) {
       if (valid) return { url: ogMatch[1], source: productUrl };
     }
 
-    // Cherche les images produit dans le HTML
+    // Images produit Agrizone directes
     const imgMatches = [...productHtml.matchAll(/(?:src|data-src)="(https?:\/\/[^"]*agrizone[^"]+\.(?:jpg|jpeg|png|webp))"/gi)];
     for (const im of imgMatches) {
       if (im[1].includes('placeholder') || im[1].includes('logo')) continue;
@@ -148,10 +122,10 @@ Deno.serve(async (req) => {
       ? `${product.reference} ${product.intitule_origine}`
       : product.reference;
 
-    // Étape 1 : Scraping Agrizone + Google Images + LLM en parallèle
-    const [agrizoneResult, googleImageUrls, enrichmentResult] = await Promise.all([
+    // Étape 1 : Agrizone + DuckDuckGo Images + LLM (infos) en parallèle
+    const [agrizoneResult, ddgImageUrls, enrichmentResult] = await Promise.all([
       fetchAgrizoneImage(product.reference),
-      fetchGoogleImages(searchQuery),
+      fetchDuckDuckGoImages(searchQuery),
       base44.asServiceRole.integrations.Core.InvokeLLM({
         prompt: `Tu es un expert en produits industriels et agricoles.
 Recherche ce produit sur internet et retourne ses informations commerciales.
@@ -161,7 +135,7 @@ Recherche ce produit sur internet et retourne ses informations commerciales.
 Fournis :
 - designation: Désignation commerciale complète en français
 - petit_descriptif: Description courte (2-3 phrases) pour catalogue professionnel
-- photo_url: laisse VIDE (sera rempli automatiquement)
+- photo_url: laisse VIDE, sera rempli automatiquement
 - marque: Marque identifiée
 - categorie: Catégorie produit précise
 - source_info: URL de la page produit officielle
@@ -189,26 +163,25 @@ Fournis :
     ]);
 
     // Étape 2 : Sélection de la meilleure image
-    // Priorité : Agrizone (scrapée) > Google Images (première valide) > rien
+    // Priorité : Agrizone (scrapée) > DuckDuckGo (première valide)
     let finalPhotoUrl = '';
     let finalSourceImage = '';
 
     if (agrizoneResult) {
       finalPhotoUrl = agrizoneResult.url;
       finalSourceImage = 'agrizone.net';
-    } else {
-      // Valide les candidates Google Images en parallèle (max 5 en même temps)
-      const toTest = googleImageUrls.slice(0, 5);
+    } else if (ddgImageUrls.length > 0) {
+      // Valide les candidates en parallèle (max 5)
+      const toTest = ddgImageUrls.slice(0, 5);
       const results = await Promise.all(toTest.map(u => validateImageUrl(u).then(ok => ok ? u : null)));
       const firstValid = results.find(u => u !== null);
       if (firstValid) {
         finalPhotoUrl = firstValid;
-        finalSourceImage = 'google-images';
-        // Tente d'identifier le domaine source
         try {
-          const domain = new URL(firstValid).hostname.replace('www.', '');
-          finalSourceImage = domain;
-        } catch {}
+          finalSourceImage = new URL(firstValid).hostname.replace('www.', '');
+        } catch {
+          finalSourceImage = 'duckduckgo';
+        }
       }
     }
 
