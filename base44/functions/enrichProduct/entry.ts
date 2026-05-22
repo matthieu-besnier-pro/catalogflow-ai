@@ -1,83 +1,113 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
-// Tente de récupérer l'image depuis Agrizone en scrapant la page produit
-async function fetchAgrizoneImage(reference) {
+// Formats d'image supportés par les navigateurs (exclut avif, pdf, svg, etc.)
+const SUPPORTED_IMG_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const SUPPORTED_IMG_EXT = /\.(jpg|jpeg|png|webp|gif)(\?[^"]*)?$/i;
+const BLOCKED_EXT = /\.(avif|pdf|svg|tiff|bmp|ico)(\?.*)?$/i;
+
+// Valide qu'une URL pointe vers une image réelle, accessible, avec un content-type supporté
+async function validateImageUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  if (BLOCKED_EXT.test(url)) return false;
+  // Nettoie les URLs de redirection type agrizone (/fr/fstrz/r/s/c/...)
+  if (url.includes('/fstrz/') || url.includes('/r/s/c/')) return false;
+
   try {
-    const searchUrl = `https://www.agrizone.net/recherche?q=${encodeURIComponent(reference)}`;
-    const res = await fetch(searchUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CatalogBot/1.0)' },
-      signal: AbortSignal.timeout(8000)
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Range': 'bytes=0-1023'  // Télécharge seulement les premiers octets
+      },
+      signal: AbortSignal.timeout(6000)
     });
-    if (!res.ok) return null;
-    const html = await res.text();
-
-    // Cherche le premier lien produit dans les résultats de recherche
-    const productLinkMatch = html.match(/href="(\/[^"]*\/p\/[^"]+)"/);
-    if (!productLinkMatch) return null;
-
-    const productUrl = `https://www.agrizone.net${productLinkMatch[1]}`;
-    const productRes = await fetch(productUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CatalogBot/1.0)' },
-      signal: AbortSignal.timeout(8000)
-    });
-    if (!productRes.ok) return null;
-    const productHtml = await productRes.text();
-
-    // Cherche l'image principale du produit (og:image ou balise img principale)
-    const ogImageMatch = productHtml.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i)
-      || productHtml.match(/<meta[^>]+content="([^"]+)"[^>]+property="og:image"/i);
-    if (ogImageMatch) return { url: ogImageMatch[1], source: productUrl };
-
-    // Fallback: cherche une img avec classe type "product" ou "main"
-    const imgMatch = productHtml.match(/<img[^>]+(?:class="[^"]*(?:product|main|principal)[^"]*"|id="[^"]*(?:product|main)[^"]*")[^>]+src="([^"]+\.(jpg|jpeg|png|webp))"/i);
-    if (imgMatch) return { url: imgMatch[1].startsWith('http') ? imgMatch[1] : `https://www.agrizone.net${imgMatch[1]}`, source: productUrl };
-
-    return null;
+    if (!res.ok) return false;
+    const contentType = (res.headers.get('content-type') || '').split(';')[0].trim();
+    // Consomme le body pour libérer la connexion
+    await res.body?.cancel();
+    return SUPPORTED_IMG_MIME.includes(contentType);
   } catch {
-    return null;
+    return false;
   }
 }
 
-// Tente de récupérer l'image via la recherche Google Images (via scraping léger)
-async function fetchGoogleImage(query) {
+// Extrait les URLs d'images valides depuis un HTML, en filtrant les formats non supportés
+function extractImageUrls(html, baseUrl) {
+  const urls = [];
+
+  // og:image (le plus fiable)
+  const ogMatches = [...html.matchAll(/<meta[^>]+(?:property="og:image"|name="og:image")[^>]+content="([^"]+)"/gi),
+                     ...html.matchAll(/<meta[^>]+content="([^"]+)"[^>]+property="og:image"/gi)];
+  for (const m of ogMatches) urls.push(m[1]);
+
+  // data-src et src dans les balises img (images lazy-load)
+  const imgMatches = [...html.matchAll(/<img[^>]+(?:data-src|src)="([^"]+)"/gi)];
+  for (const m of imgMatches) {
+    const src = m[1];
+    const abs = src.startsWith('http') ? src : `${baseUrl}${src.startsWith('/') ? '' : '/'}${src}`;
+    urls.push(abs);
+  }
+
+  // Filtre et dédoublonne : garde uniquement les extensions supportées, exclut les bloquées
+  return [...new Set(urls)].filter(u =>
+    SUPPORTED_IMG_EXT.test(u.split('?')[0]) &&
+    !BLOCKED_EXT.test(u) &&
+    !u.includes('/fstrz/') &&
+    !u.includes('placeholder') &&
+    !u.includes('logo') &&
+    u.length > 30
+  );
+}
+
+// Scrape Agrizone pour trouver la page produit et en extraire une image valide
+async function fetchAgrizoneImage(reference) {
   try {
-    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query + ' photo produit')}&tbm=isch&num=5`;
-    const res = await fetch(searchUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-        'Accept-Language': 'fr-FR,fr;q=0.9'
-      },
-      signal: AbortSignal.timeout(8000)
-    });
-    if (!res.ok) return null;
-    const html = await res.text();
-    // Cherche les URLs d'images directes dans la réponse
-    const imgMatches = [...html.matchAll(/"(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp))"/gi)];
-    for (const match of imgMatches) {
-      const url = match[1];
-      // Filtre les URLs Google et petites icônes
-      if (!url.includes('google') && !url.includes('gstatic') && url.length > 50) {
-        return { url, source: 'Google Images' };
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0',
+      'Accept': 'text/html,application/xhtml+xml',
+      'Accept-Language': 'fr-FR,fr;q=0.9'
+    };
+
+    // Recherche sur Agrizone
+    const searchRes = await fetch(
+      `https://www.agrizone.net/catalogsearch/result/?q=${encodeURIComponent(reference)}`,
+      { headers, signal: AbortSignal.timeout(10000) }
+    );
+    if (!searchRes.ok) return null;
+    const searchHtml = await searchRes.text();
+
+    // Récupère le premier lien produit (href contenant le pattern produit Agrizone)
+    const linkPatterns = [
+      /href="(https?:\/\/www\.agrizone\.net\/[^"]+\.html)"/gi,
+      /href="(\/[a-z0-9-]+\.html)"/gi
+    ];
+    let productUrl = null;
+    for (const pattern of linkPatterns) {
+      const match = searchHtml.match(pattern);
+      if (match) {
+        const href = match[0].match(/href="([^"]+)"/)[1];
+        productUrl = href.startsWith('http') ? href : `https://www.agrizone.net${href}`;
+        break;
       }
+    }
+    if (!productUrl) return null;
+
+    // Charge la page produit
+    const productRes = await fetch(productUrl, { headers, signal: AbortSignal.timeout(10000) });
+    if (!productRes.ok) return null;
+    const productHtml = await productRes.text();
+
+    // Extrait toutes les images candidates
+    const candidates = extractImageUrls(productHtml, 'https://www.agrizone.net');
+    
+    // Teste chaque candidate jusqu'à en trouver une valide
+    for (const url of candidates) {
+      const valid = await validateImageUrl(url);
+      if (valid) return { url, source: productUrl };
     }
     return null;
   } catch {
     return null;
-  }
-}
-
-// Valide qu'une URL pointe bien vers une image accessible
-async function validateImageUrl(url) {
-  if (!url || !url.match(/\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i)) return false;
-  try {
-    const res = await fetch(url, {
-      method: 'HEAD',
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(5000)
-    });
-    return res.ok && (res.headers.get('content-type') || '').startsWith('image/');
-  } catch {
-    return false;
   }
 }
 
@@ -98,16 +128,12 @@ Deno.serve(async (req) => {
       ? `${product.reference} ${product.intitule_origine}`
       : product.reference;
 
-    // Étape 1 : Recherche parallèle d'images (Agrizone + Google Images)
-    const [agrizoneResult, googleResult] = await Promise.all([
-      fetchAgrizoneImage(product.reference),
-      fetchGoogleImage(searchQuery)
-    ]);
+    // Étape 1 : Scraping Agrizone en priorité (résultat déjà validé pixel par pixel)
+    const agrizoneResult = await fetchAgrizoneImage(product.reference);
 
-    // Étape 2 : Enrichissement LLM avec contexte sur les images déjà trouvées
+    // Étape 2 : Enrichissement LLM en parallèle (infos + éventuellement une autre image)
     const preFoundImages = [];
-    if (agrizoneResult) preFoundImages.push(`- Agrizone: ${agrizoneResult.url} (page: ${agrizoneResult.source})`);
-    if (googleResult) preFoundImages.push(`- Google Images: ${googleResult.url}`);
+    if (agrizoneResult) preFoundImages.push(`- Agrizone (VALIDÉE, utilise cette URL): ${agrizoneResult.url}`);
 
     const enrichmentResult = await base44.asServiceRole.integrations.Core.InvokeLLM({
       prompt: `Tu es un expert en recherche de produits industriels et agricoles.
@@ -116,19 +142,20 @@ Recherche sur internet les informations sur ce produit:
 - Libellé produit: ${product.intitule_origine || 'non fourni'}
 - Requête de recherche: "${searchQuery}"
 
-SOURCES PRIORITAIRES À CONSULTER (dans cet ordre):
-1. agrizone.net - recherche la référence ${product.reference} sur https://www.agrizone.net/recherche?q=${encodeURIComponent(product.reference)}
-2. Sites fabricants directs (page officielle du produit)
-3. Distributeurs spécialisés (rs-components.com, farnell.com, conrad.fr, manomano.fr, leroymerlin.fr, amazon.fr)
+${agrizoneResult ? `✅ IMAGE AGRIZONE DÉJÀ TROUVÉE ET VALIDÉE — utilise impérativement cette URL pour photo_url:
+${agrizoneResult.url}
+Source page: ${agrizoneResult.source}
 
-${preFoundImages.length > 0 ? `URLs d'images pré-trouvées automatiquement (UTILISE-LES EN PRIORITÉ si elles semblent correctes):
-${preFoundImages.join('\n')}
+` : `CHERCHE L'IMAGE sur ces sources (dans l'ordre):
+1. agrizone.net : https://www.agrizone.net/catalogsearch/result/?q=${encodeURIComponent(product.reference)}
+2. Site fabricant officiel du produit
+3. Distributeurs : manomano.fr, leroymerlin.fr, amazon.fr, cdiscount.com
 
-` : ''}RÈGLES ABSOLUES POUR photo_url:
-- Doit être une URL DIRECTE vers un fichier image (.jpg, .jpeg, .png, .webp) — JAMAIS une page web
-- L'URL doit être accessible publiquement
-- Préfère les images haute résolution des sites officiels
-- Si les URLs pré-trouvées ci-dessus correspondent au produit, utilise-les
+`}RÈGLES ABSOLUES POUR photo_url:
+- URL DIRECTE vers fichier image (.jpg, .jpeg, .png, .webp) UNIQUEMENT
+- JAMAIS .avif, .svg, .pdf, ni URL de page web
+- JAMAIS une URL contenant "/fstrz/" ou "/r/s/c/" (redirections)
+- L'URL doit se terminer par .jpg, .jpeg, .png ou .webp
 
 Fournis:
 - designation: Désignation commerciale complète en français
@@ -159,30 +186,22 @@ Fournis:
       }
     });
 
-    // Étape 3 : Sélection de la meilleure image avec validation
+    // Étape 3 : Sélection de la meilleure image
+    // Priorité : Agrizone (déjà validée) > LLM (à valider) > rien
     let finalPhotoUrl = '';
     let finalSourceImage = '';
 
-    // Ordre de priorité : LLM > Agrizone > Google
-    const candidateImages = [
-      enrichmentResult.photo_url ? { url: enrichmentResult.photo_url, source: enrichmentResult.source_image || 'LLM' } : null,
-      agrizoneResult,
-      googleResult
-    ].filter(Boolean);
-
-    for (const candidate of candidateImages) {
-      const isValid = await validateImageUrl(candidate.url);
+    if (agrizoneResult) {
+      // Agrizone déjà validée dans fetchAgrizoneImage, on fait confiance
+      finalPhotoUrl = agrizoneResult.url;
+      finalSourceImage = 'agrizone.net';
+    } else if (enrichmentResult.photo_url) {
+      // Valide l'URL proposée par le LLM
+      const isValid = await validateImageUrl(enrichmentResult.photo_url);
       if (isValid) {
-        finalPhotoUrl = candidate.url;
-        finalSourceImage = candidate.source || '';
-        break;
+        finalPhotoUrl = enrichmentResult.photo_url;
+        finalSourceImage = enrichmentResult.source_image || '';
       }
-    }
-
-    // Si aucune image validée, garde l'URL LLM sans validation (peut quand même fonctionner)
-    if (!finalPhotoUrl && enrichmentResult.photo_url) {
-      finalPhotoUrl = enrichmentResult.photo_url;
-      finalSourceImage = enrichmentResult.source_image || '';
     }
 
     let finalComment = product.commentaire || '';
