@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 export default function ImportZone({ onImport, isLoading }) {
   const [rawText, setRawText] = useState('');
+  const [importName, setImportName] = useState('');
   const [activeTab, setActiveTab] = useState('paste');
   const fileInputRef = useRef(null);
 
@@ -67,6 +68,18 @@ export default function ImportZone({ onImport, isLoading }) {
         </div>
 
         <div className="p-6">
+          {/* Nom de l'import */}
+          <div className="mb-5 space-y-1.5">
+            <label className="text-sm font-medium text-foreground">Nom de l'import <span className="text-muted-foreground font-normal">(facultatif)</span></label>
+            <input
+              type="text"
+              value={importName}
+              onChange={e => setImportName(e.target.value)}
+              placeholder={`Import du ${new Date().toLocaleDateString('fr-FR')}`}
+              className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            />
+          </div>
+
           {activeTab === 'paste' ? (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -132,7 +145,7 @@ export default function ImportZone({ onImport, isLoading }) {
             <Button
               size="lg"
               disabled={!rawText.trim() || isLoading}
-              onClick={() => onImport(rawText)}
+              onClick={() => onImport(rawText, importName)}
               className="gap-2 px-8 shadow-lg shadow-primary/25"
             >
               {isLoading ? (

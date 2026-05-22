@@ -65,7 +65,7 @@ export default function CatalogView() {
   const handleSaveProduct = async (updatedProduct) => {
     const { id, created_date, updated_date, created_by, ...data } = updatedProduct;
     await base44.entities.Product.update(id, data);
-    queryClient.invalidateQueries({ queryKey: ['products', batchId] });
+    await queryClient.refetchQueries({ queryKey: ['products', batchId] });
     setEditProduct(null);
   };
 

@@ -9,11 +9,11 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handleImport = async (rawText) => {
+  const handleImport = async (rawText, importName) => {
     setIsLoading(true);
     try {
       const batch = await base44.entities.CatalogBatch.create({
-        name: `Import du ${new Date().toLocaleDateString('fr-FR')}`,
+        name: importName?.trim() || `Import du ${new Date().toLocaleDateString('fr-FR')}`,
         status: 'en_cours',
         raw_input: rawText
       });
