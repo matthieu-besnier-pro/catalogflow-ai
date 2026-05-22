@@ -23,7 +23,7 @@ const FILIALE_NAMES = {
   tmc:           'TMC',
 };
 
-export default function CatagriPageView({ products, opts, coverData, isFirstPage }) {
+export default function CatagriPageView({ products, opts, coverData, isFirstPage, allCategories = [] }) {
   const filiale = opts.filiale || 'none';
   const colors = FILIALE_COLORS[filiale] || FILIALE_COLORS.none;
   const filialeName = FILIALE_NAMES[filiale] || '';
@@ -100,39 +100,47 @@ export default function CatagriPageView({ products, opts, coverData, isFirstPage
       </div>
 
       {/* Grille produits */}
-      <div style={{ flex: 1, padding: '12px 14px', background: '#f8f8f8' }}>
+      <div style={{ flex: 1, padding: `${opts.padding}px ${opts.padding}px`, background: '#f8f8f8', overflowY: 'auto' }}>
         {products.length === 0 ? (
           <div style={{ textAlign: 'center', color: '#aaa', fontSize: 13, paddingTop: 60 }}>
             Aucun produit sur cette page
           </div>
         ) : (
-          <div style={gridStyle}>
+          <div style={{ ...gridStyle, gap: `${opts.gap}px` }}>
             {products.map(p => (
-              <CatagriProductCard key={p._id} product={p} colors={colors} template={opts.template} />
+              <CatagriProductCard
+                key={p._id}
+                product={p}
+                colors={colors}
+                template={opts.template}
+                opts={opts}
+              />
             ))}
           </div>
         )}
       </div>
 
       {/* Pied de page */}
-      <div
-        style={{
-          background: colors.primary,
-          color: 'rgba(255,255,255,0.6)',
-          fontSize: 9,
-          padding: '5px 20px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexShrink: 0,
-        }}
-      >
-        <span>{filialeName || 'CatalogFlowAI'}</span>
-        <span style={{ color: colors.accent, fontWeight: 700, fontSize: 11 }}>
-          {products[0]?.page && `Page ${products[0].page}`}
-        </span>
-        <span>Prix en € HT — Non contractuels</span>
-      </div>
+      {opts.showFooter && (
+        <div
+          style={{
+            background: colors.primary,
+            color: 'rgba(255,255,255,0.6)',
+            fontSize: 9,
+            padding: '5px 20px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexShrink: 0,
+          }}
+        >
+          <span>{filialeName || 'CatalogFlowAI'}</span>
+          <span style={{ color: colors.accent, fontWeight: 700, fontSize: 11 }}>
+            {products[0]?.page && `Page ${products[0].page}`}
+          </span>
+          <span>{opts.footerText}</span>
+        </div>
+      )}
     </div>
   );
 }

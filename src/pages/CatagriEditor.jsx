@@ -55,10 +55,52 @@ export default function CatagriEditor() {
 
   // Paramètres de mise en page
   const [opts, setOpts] = useState({
+    // Format & Layout
     template: 'catalogue',
+    format: 'a4p', // a4p, a4l, a3p, a3l
+    
+    // Filiale & Couleurs
     filiale: 'none',
+    
+    // Grille
     density: 16,
     cols: 4,
+    
+    // Couverture
+    coverTitle: '',
+    coverImg: '',
+    showCoverImg: false,
+    
+    // Style de prix
+    priceStyle: 'bandeau', // bandeau, coin, text
+    
+    // En-tête/Pied
+    showHeader: true,
+    showFooter: true,
+    footerText: 'Prix en € HT — Non contractuels',
+    
+    // Marges & Espacement
+    padding: 14,
+    gap: 8,
+    
+    // Badge & styles
+    showBadges: true,
+    badgeStyle: 'corner', // corner, banner
+    
+    // Filtres
+    filterCategory: 'all', // all ou catégorie spécifique
+    minPrice: null,
+    maxPrice: null,
+    showOnlyPromo: false,
+    
+    // Affichage produit
+    showDesc: true,
+    showCategory: true,
+    showReference: true,
+    textSize: 'normal', // small, normal, large
+    
+    // Tri
+    sortBy: 'order', // order, name, price, category
   });
 
   useEffect(() => {
@@ -79,12 +121,36 @@ export default function CatagriEditor() {
     })();
   }, [batchId]);
 
-  const projet = buildProject(rawProducts, batchName, {
+  // Appliquer les filtres
+  let filtered = [...rawProducts];
+  if (opts.filterCategory !== 'all') {
+    filtered = filtered.filter(p => p.categorie === opts.filterCategory);
+  }
+  if (opts.minPrice !== null) {
+    filtered = filtered.filter(p => !p.tarif_promo_ht || p.tarif_promo_ht >= opts.minPrice);
+  }
+  if (opts.maxPrice !== null) {
+    filtered = filtered.filter(p => !p.tarif_promo_ht || p.tarif_promo_ht <= opts.maxPrice);
+  }
+  if (opts.showOnlyPromo) {
+    filtered = filtered.filter(p => p.tarif_normal_ht && p.tarif_promo_ht && p.tarif_promo_ht < p.tarif_normal_ht);
+  }
+
+  // Appliquer le tri
+  if (opts.sortBy === 'name') {
+    filtered.sort((a, b) => (a.designation || a.intitule_origine || '').localeCompare(b.designation || b.intitule_origine || ''));
+  } else if (opts.sortBy === 'price') {
+    filtered.sort((a, b) => (a.tarif_promo_ht || 0) - (b.tarif_promo_ht || 0));
+  } else if (opts.sortBy === 'category') {
+    filtered.sort((a, b) => (a.categorie || '').localeCompare(b.categorie || ''));
+  }
+
+  const projet = buildProject(filtered, opts.coverTitle || batchName, {
     ...opts,
     filiale: opts.filiale === 'none' ? null : opts.filiale,
   });
 
-  const totalPages = Math.max(1, Math.ceil(rawProducts.length / opts.density));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / opts.density));
   const pageProducts = projet.products.filter(p => p.page === String(currentPage));
 
   // Reset page quand density change
@@ -125,7 +191,7 @@ export default function CatagriEditor() {
           </Button>
           <div>
             <h1 className="font-bold text-sm leading-none">CAT'AGRI Studio</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">{batchName || 'Mode autonome'} · {rawProducts.length} produits</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{batchName || 'Mode autonome'} · {filtered.length} produits affichés</p>
           </div>
           <span className="ml-2 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">BETA</span>
         </div>
@@ -161,6 +227,7 @@ export default function CatagriEditor() {
             opts={opts}
             coverData={projet.cover}
             isFirstPage={currentPage === 1}
+            allCategories={[...new Set(rawProducts.map(p => p.categorie).filter(Boolean))]}
           />
         </main>
       </div>
