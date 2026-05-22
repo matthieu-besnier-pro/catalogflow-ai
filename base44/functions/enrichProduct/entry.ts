@@ -174,25 +174,23 @@ Deno.serve(async (req) => {
       fetchAgrizoneImage(product.reference),
       fetchDuckDuckGoImages(searchQuery),
       base44.asServiceRole.integrations.Core.InvokeLLM({
-        prompt: `Tu es un expert en pièces détachées et équipements agricoles (tracteurs, moissonneuses, outils de travail du sol, matériel d'irrigation, etc.).
+        prompt: `Tu es un expert en produits industriels et commerciaux.
 Recherche ce produit sur internet et retourne ses informations commerciales précises.
 - Référence: ${product.reference}
 - Libellé d'origine: ${product.intitule_origine || 'non fourni'}
 - Marque connue: ${product.marque || 'inconnue — à identifier'}
-
-Contexte : Il s'agit d'une pièce ou d'un équipement agricole. Priorise les sources spécialisées (agrizone.net, kramp.com, guy-agri.com, guytec.fr, sdm-agri.com, agripartner.fr, etc.).${marqueHint}
-
+${marqueHint}
 Fournis :
 - designation: Désignation commerciale complète en français (inclure la marque si identifiée)
-- petit_descriptif: Description courte (2-3 phrases) pour catalogue professionnel agricole
+- petit_descriptif: Description courte (2-3 phrases) pour catalogue professionnel
 - photo_url: laisse VIDE
-- marque: Marque fabricant identifiée avec certitude (ex: Kuhn, Lemken, Amazone, Kverneland, Claas, John Deere, New Holland…)
-- categorie: Catégorie précise (ex: "Pièce d'usure faucheuse", "Soc de labour", "Filtre hydraulique tracteur"…)
+- marque: Marque fabricant identifiée
+- categorie: Catégorie produit précise
 - source_info: URL de la page produit officielle ou distributeur
 - source_image: laisse VIDE
 - niveau_confiance: "Élevé" si ref exacte trouvée, "Moyen" si bonne correspondance, "Faible" sinon
 - statut_validation: "Validé" si infos complètes, "Validé partiel" si partiel, "À vérifier" si doute, "Introuvable" si rien
-- commentaire: Remarques sur la correspondance, compatibilités machines connues`,
+- commentaire: Remarques sur la correspondance`,
         add_context_from_internet: true,
         response_json_schema: {
           type: "object",
