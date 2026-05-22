@@ -69,6 +69,19 @@ export default function CatalogView() {
     setEditProduct(null);
   };
 
+  const handleReenrichProduct = async (productId) => {
+    setEnrichingId(productId);
+    try {
+      await base44.functions.invoke('enrichProduct', { productId });
+    } catch (err) {
+      console.error('Erreur re-enrichissement:', err);
+    }
+    await queryClient.refetchQueries({ queryKey: ['products', batchId] });
+    queryClient.invalidateQueries({ queryKey: ['batch', batchId] });
+    setEnrichingId(null);
+    setEditProduct(null);
+  };
+
   const [showExportDialog, setShowExportDialog] = useState(false);
   const unenrichedCount = products.filter(p => !p.enriched).length;
   const hasEnrichedProducts = products.some(p => p.enriched);
@@ -167,6 +180,7 @@ export default function CatalogView() {
         open={!!editProduct}
         onClose={() => setEditProduct(null)}
         onSave={handleSaveProduct}
+        onReenrich={handleReenrichProduct}
       />
 
       {/* Export dialog */}

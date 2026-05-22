@@ -11,11 +11,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Save, ExternalLink } from "lucide-react";
+import { Save, ExternalLink, Sparkles, Loader2 } from "lucide-react";
 import StatusBadge from './StatusBadge';
 
-export default function ProductEditDialog({ product, open, onClose, onSave }) {
+export default function ProductEditDialog({ product, open, onClose, onSave, onReenrich }) {
   const [form, setForm] = useState({});
+  const [isReenriching, setIsReenriching] = useState(false);
 
   useEffect(() => {
     if (product) setForm({ ...product });
@@ -27,6 +28,13 @@ export default function ProductEditDialog({ product, open, onClose, onSave }) {
 
   const handleSave = () => {
     onSave(form);
+  };
+
+  const handleReenrich = async () => {
+    setIsReenriching(true);
+    await onSave(form);
+    await onReenrich(form.id);
+    setIsReenriching(false);
   };
 
   if (!product) return null;
@@ -133,9 +141,23 @@ export default function ProductEditDialog({ product, open, onClose, onSave }) {
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Annuler</Button>
-          <Button onClick={handleSave} className="gap-2">
+        <DialogFooter className="flex-col sm:flex-row gap-2">
+          <Button variant="outline" onClick={onClose} disabled={isReenriching}>Annuler</Button>
+          {onReenrich && (
+            <Button
+              variant="outline"
+              onClick={handleReenrich}
+              disabled={isReenriching}
+              className="gap-2 border-primary/40 text-primary hover:bg-primary/5"
+            >
+              {isReenriching ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Re-enrichissement...</>
+              ) : (
+                <><Sparkles className="w-4 h-4" /> Sauvegarder & Re-enrichir</>
+              )}
+            </Button>
+          )}
+          <Button onClick={handleSave} disabled={isReenriching} className="gap-2">
             <Save className="w-4 h-4" />
             Enregistrer
           </Button>
