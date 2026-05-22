@@ -39,6 +39,14 @@ Deno.serve(async (req) => {
         tarifNormalHt = parseFloat(priceMatches[1][1].replace(',', '.'));
       }
 
+      // Always put the lower price as promo and higher as normal
+      if (tarifPromoHt !== null && tarifNormalHt !== null) {
+        const lower = Math.min(tarifPromoHt, tarifNormalHt);
+        const higher = Math.max(tarifPromoHt, tarifNormalHt);
+        tarifPromoHt = lower;
+        tarifNormalHt = higher;
+      }
+
       // Extract intitulé: text between reference and first price (number€)
       let intitule = '';
       if (reference) {

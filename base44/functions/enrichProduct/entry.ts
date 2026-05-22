@@ -17,14 +17,18 @@ Deno.serve(async (req) => {
     }
     const product = products[0];
 
-    const searchQuery = `${product.reference} ${product.intitule_origine || ''}`.trim();
+    const searchQuery = product.intitule_origine
+      ? `${product.reference} ${product.intitule_origine}`
+      : product.reference;
 
     const enrichmentResult = await base44.asServiceRole.integrations.Core.InvokeLLM({
       prompt: `Tu es un expert en recherche de produits industriels et professionnels. 
 Recherche sur internet les informations sur ce produit:
 - Référence: ${product.reference}
-- Intitulé d'origine: ${product.intitule_origine || 'non fourni'}
-- Recherche: "${searchQuery}"
+- Libellé produit fourni: ${product.intitule_origine || 'non fourni'}
+- Requête de recherche: "${searchQuery}"
+
+IMPORTANT: Si un libellé produit est fourni, utilise-le comme contexte prioritaire pour identifier le produit. La référence seule peut être ambiguë, mais combinée au libellé elle permet une identification précise.
 
 Tu DOIS rechercher ce produit sur internet et fournir des informations RÉELLES et VÉRIFIÉES.
 Ne JAMAIS inventer de données techniques non confirmées par une source.
