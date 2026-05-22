@@ -118,31 +118,81 @@ Deno.serve(async (req) => {
     if (!products || products.length === 0) return Response.json({ error: 'Produit non trouvé' }, { status: 404 });
     const product = products[0];
 
-    const searchQuery = product.intitule_origine
-      ? `${product.reference} ${product.intitule_origine}`
-      : product.reference;
+    // ── Étape 0 : Chercher si cette référence a déjà été enrichie dans un autre lot ──
+    // On filtre uniquement les produits avec la même référence, déjà enrichis, avec de bonnes infos
+    let cachedProduct = null;
+    if (product.reference) {
+      const existing = await base44.asServiceRole.entities.Product.filter({ reference: product.reference });
+      const candidates = existing.filter(p =>
+        p.id !== productId &&
+        p.enriched === true &&
+        p.statut_validation !== 'Introuvable' &&
+        p.designation
+      );
+      if (candidates.length > 0) {
+        // Prendre le plus récemment mis à jour
+        candidates.sort((a, b) => new Date(b.updated_date) - new Date(a.updated_date));
+        cachedProduct = candidates[0];
+      }
+    }
 
-    // Étape 1 : Agrizone + DuckDuckGo Images + LLM (infos) en parallèle
+    if (cachedProduct) {
+      // Réutiliser les données existantes — pas de crédits IA consommés
+      const reuseData = {
+        designation: cachedProduct.designation || '',
+        petit_descriptif: cachedProduct.petit_descriptif || '',
+        photo_url: cachedProduct.photo_url || '',
+        marque: product.marque || cachedProduct.marque || '',
+        categorie: cachedProduct.categorie || '',
+        source_info: cachedProduct.source_info || '',
+        source_image: cachedProduct.source_image || '',
+        niveau_confiance: cachedProduct.niveau_confiance || 'Moyen',
+        statut_validation: cachedProduct.statut_validation || 'Validé partiel',
+        commentaire: `[Données réutilisées depuis un import précédent] ${cachedProduct.commentaire || ''}`.trim(),
+        enriched: true
+      };
+      await base44.entities.Product.update(productId, reuseData);
+
+      const batchProducts = await base44.entities.Product.filter({ batch_id: product.batch_id });
+      const enrichedCount = batchProducts.filter(p => p.enriched || p.id === productId).length;
+      const batchArr = await base44.entities.CatalogBatch.filter({ id: product.batch_id });
+      const currentCredits = batchArr[0]?.credits_used || 0;
+      await base44.entities.CatalogBatch.update(product.batch_id, {
+        processed_products: enrichedCount,
+        // Pas de crédit consommé puisque réutilisé
+        credits_used: currentCredits,
+        status: enrichedCount >= batchProducts.length ? 'termine' : 'en_cours'
+      });
+      return Response.json({ success: true, reused: true, product: { ...product, ...reuseData } });
+    }
+
+    // ── Étape 1 : Enrichissement complet via IA + Web ──
+    const marqueHint = product.marque ? ` Marque connue : ${product.marque}.` : '';
+    const searchQuery = [product.marque, product.reference, product.intitule_origine].filter(Boolean).join(' ');
+
     const [agrizoneResult, ddgImageUrls, enrichmentResult] = await Promise.all([
       fetchAgrizoneImage(product.reference),
       fetchDuckDuckGoImages(searchQuery),
       base44.asServiceRole.integrations.Core.InvokeLLM({
-        prompt: `Tu es un expert en produits industriels et agricoles.
-Recherche ce produit sur internet et retourne ses informations commerciales.
+        prompt: `Tu es un expert en pièces détachées et équipements agricoles (tracteurs, moissonneuses, outils de travail du sol, matériel d'irrigation, etc.).
+Recherche ce produit sur internet et retourne ses informations commerciales précises.
 - Référence: ${product.reference}
-- Libellé: ${product.intitule_origine || 'non fourni'}
+- Libellé d'origine: ${product.intitule_origine || 'non fourni'}
+- Marque connue: ${product.marque || 'inconnue — à identifier'}
+
+Contexte : Il s'agit d'une pièce ou d'un équipement agricole. Priorise les sources spécialisées (agrizone.net, kramp.com, guy-agri.com, guytec.fr, sdm-agri.com, agripartner.fr, etc.).${marqueHint}
 
 Fournis :
-- designation: Désignation commerciale complète en français
-- petit_descriptif: Description courte (2-3 phrases) pour catalogue professionnel
-- photo_url: laisse VIDE, sera rempli automatiquement
-- marque: Marque identifiée
-- categorie: Catégorie produit précise
-- source_info: URL de la page produit officielle
+- designation: Désignation commerciale complète en français (inclure la marque si identifiée)
+- petit_descriptif: Description courte (2-3 phrases) pour catalogue professionnel agricole
+- photo_url: laisse VIDE
+- marque: Marque fabricant identifiée avec certitude (ex: Kuhn, Lemken, Amazone, Kverneland, Claas, John Deere, New Holland…)
+- categorie: Catégorie précise (ex: "Pièce d'usure faucheuse", "Soc de labour", "Filtre hydraulique tracteur"…)
+- source_info: URL de la page produit officielle ou distributeur
 - source_image: laisse VIDE
-- niveau_confiance: "Élevé" si ref exacte, "Moyen" si bonne correspondance, "Faible" sinon
-- statut_validation: "Validé" si infos OK, "Validé partiel" si partiel, "À vérifier" si doute, "Introuvable" si rien
-- commentaire: Remarques sur la correspondance`,
+- niveau_confiance: "Élevé" si ref exacte trouvée, "Moyen" si bonne correspondance, "Faible" sinon
+- statut_validation: "Validé" si infos complètes, "Validé partiel" si partiel, "À vérifier" si doute, "Introuvable" si rien
+- commentaire: Remarques sur la correspondance, compatibilités machines connues`,
         add_context_from_internet: true,
         response_json_schema: {
           type: "object",

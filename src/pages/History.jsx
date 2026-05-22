@@ -1,22 +1,37 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Plus, Package, Clock, ChevronRight, Loader2, Zap } from "lucide-react";
+import { ArrowLeft, Plus, Package, Clock, ChevronRight, Loader2, Zap, Trash2 } from "lucide-react";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { motion } from 'framer-motion';
 
 export default function History() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [deletingId, setDeletingId] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   const { data: batches = [], isLoading } = useQuery({
     queryKey: ['batches'],
     queryFn: () => base44.entities.CatalogBatch.list('-created_date', 50)
   });
+
+  const handleDeleteBatch = async (batchId, e) => {
+    e.stopPropagation();
+    setDeletingId(batchId);
+    // Supprimer tous les produits du lot d'abord
+    const products = await base44.entities.Product.filter({ batch_id: batchId });
+    await Promise.all(products.map(p => base44.entities.Product.delete(p.id)));
+    await base44.entities.CatalogBatch.delete(batchId);
+    setDeletingId(null);
+    setConfirmDeleteId(null);
+    queryClient.invalidateQueries({ queryKey: ['batches'] });
+  };
 
   const statusLabels = {
     en_cours: { label: 'En cours', cls: 'bg-amber-100 text-amber-700 border-amber-200' },
@@ -62,6 +77,8 @@ export default function History() {
           <div className="space-y-3">
             {batches.map((batch, i) => {
               const status = statusLabels[batch.status] || statusLabels.en_cours;
+              const isDeleting = deletingId === batch.id;
+              const isConfirming = confirmDeleteId === batch.id;
               return (
                 <motion.div
                   key={batch.id}
@@ -70,8 +87,8 @@ export default function History() {
                   transition={{ delay: i * 0.05 }}
                 >
                   <Card
-                    className="p-4 cursor-pointer hover:shadow-md transition-all border-border hover:border-primary/30"
-                    onClick={() => navigate(`/catalog/${batch.id}`)}
+                    className="p-4 cursor-pointer hover:shadow-md transition-all border-border hover:border-primary/30 group"
+                    onClick={() => !isConfirming && navigate(`/catalog/${batch.id}`)}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex-1 min-w-0">
@@ -105,7 +122,41 @@ export default function History() {
                           )}
                         </div>
                       </div>
-                      <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                      <div className="flex items-center gap-2">
+                        {isDeleting ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                        ) : isConfirming ? (
+                          <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                            <span className="text-xs text-destructive font-medium">Supprimer ?</span>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="h-7 text-xs"
+                              onClick={(e) => handleDeleteBatch(batch.id, e)}
+                            >
+                              Oui
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs"
+                              onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
+                            >
+                              Non
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                            onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(batch.id); }}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {!isConfirming && <ChevronRight className="w-5 h-5 text-muted-foreground" />}
+                      </div>
                     </div>
                   </Card>
                 </motion.div>
