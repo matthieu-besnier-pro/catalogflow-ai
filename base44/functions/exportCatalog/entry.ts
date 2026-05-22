@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
+import { zipSync, strToU8 } from 'npm:fflate@0.8.2';
 
 Deno.serve(async (req) => {
   try {
@@ -7,7 +8,6 @@ Deno.serve(async (req) => {
     if (!user) return Response.json({ error: 'Non autorisé' }, { status: 401 });
 
     const { batchId, imageNaming } = await req.json();
-    // imageNaming: "ref" | "numero"
     if (!batchId) return Response.json({ error: 'batchId requis' }, { status: 400 });
 
     const [batchArr, products] = await Promise.all([
@@ -43,15 +43,43 @@ Deno.serve(async (req) => {
       imageResults.push(...chunkResults);
     }
 
-    // Build file map: filename -> ArrayBuffer
-    const files = {};
+    // Helper: escape XML
+    const xe = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-    // Excel data
+    const colLetter = (n) => { let s = ''; while (n > 0) { s = String.fromCharCode(65 + ((n-1) % 26)) + s; n = Math.floor((n-1) / 26); } return s; };
+
+    const buildSheet = (dataRows, headers) => {
+      let xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">\n<sheetData>`;
+      xml += `<row r="1">`;
+      headers.forEach((h, ci) => {
+        xml += `<c r="${colLetter(ci+1)}1" t="inlineStr"><is><t>${xe(h)}</t></is></c>`;
+      });
+      xml += `</row>`;
+      dataRows.forEach((row, ri) => {
+        xml += `<row r="${ri+2}">`;
+        headers.forEach((h, ci) => {
+          const val = row[h];
+          if (val === '' || val === null || val === undefined) {
+            xml += `<c r="${colLetter(ci+1)}${ri+2}" t="inlineStr"><is><t></t></is></c>`;
+          } else if (typeof val === 'number') {
+            xml += `<c r="${colLetter(ci+1)}${ri+2}"><v>${val}</v></c>`;
+          } else {
+            xml += `<c r="${colLetter(ci+1)}${ri+2}" t="inlineStr"><is><t>${xe(val)}</t></is></c>`;
+          }
+        });
+        xml += `</row>`;
+      });
+      xml += `</sheetData></worksheet>`;
+      return xml;
+    };
+
+    // Build catalog rows
     const rows = products.map((p, idx) => {
-      const imgFilename = imageResults[idx]?.buffer
+      const imgResult = imageResults[idx];
+      const imgFilename = imgResult?.buffer
         ? (imageNaming === 'numero'
-            ? String(idx + 1).padStart(3, '0') + '.' + imageResults[idx].ext
-            : (p.reference || `produit_${idx + 1}`) + '.' + imageResults[idx].ext)
+            ? String(idx + 1).padStart(3, '0') + '.' + imgResult.ext
+            : (p.reference || `produit_${idx + 1}`) + '.' + imgResult.ext)
         : '';
       return {
         '#': idx + 1,
@@ -72,7 +100,7 @@ Deno.serve(async (req) => {
       };
     });
 
-    // Credits summary sheet
+    // Credits summary
     const creditsUsed = batch.credits_used || products.filter(p => p.enriched).length;
     const summaryRows = [
       { 'Métrique': 'Nom du lot', 'Valeur': batch.name },
@@ -86,57 +114,16 @@ Deno.serve(async (req) => {
       { 'Métrique': 'Introuvables', 'Valeur': products.filter(p => p.statut_validation === 'Introuvable').length }
     ];
 
-    // Build XLSX manually (binary format)
-    // We'll encode the data as a simple XML-based XLSX using the Office Open XML format
-    // Using a minimal approach without external XLSX library in Deno
-
-    // Helper: escape XML
-    const xe = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-    const buildSheet = (dataRows, headers) => {
-      let xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<sheetData>`;
-      const colLetter = (n) => { let s = ''; while (n > 0) { s = String.fromCharCode(65 + ((n-1) % 26)) + s; n = Math.floor((n-1) / 26); } return s; };
-
-      // Header row
-      xml += `<row r="1">`;
-      headers.forEach((h, ci) => {
-        xml += `<c r="${colLetter(ci+1)}1" t="inlineStr"><is><t>${xe(h)}</t></is></c>`;
-      });
-      xml += `</row>`;
-
-      // Data rows
-      dataRows.forEach((row, ri) => {
-        xml += `<row r="${ri+2}">`;
-        headers.forEach((h, ci) => {
-          const val = row[h];
-          if (val === '' || val === null || val === undefined) {
-            xml += `<c r="${colLetter(ci+1)}${ri+2}" t="inlineStr"><is><t></t></is></c>`;
-          } else if (typeof val === 'number') {
-            xml += `<c r="${colLetter(ci+1)}${ri+2}"><v>${val}</v></c>`;
-          } else {
-            xml += `<c r="${colLetter(ci+1)}${ri+2}" t="inlineStr"><is><t>${xe(val)}</t></is></c>`;
-          }
-        });
-        xml += `</row>`;
-      });
-      xml += `</sheetData></worksheet>`;
-      return xml;
-    };
-
-    const catalogHeaders = Object.keys(rows[0] || { '#': '' });
-    const summaryHeaders = ['Métrique', 'Valeur'];
-
+    const catalogHeaders = rows.length > 0 ? Object.keys(rows[0]) : ['#'];
     const sheet1 = buildSheet(rows, catalogHeaders);
-    const sheet2 = buildSheet(summaryRows, summaryHeaders);
+    const sheet2 = buildSheet(summaryRows, ['Métrique', 'Valeur']);
 
     const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
           xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 <sheets>
 <sheet name="Catalogue" sheetId="1" r:id="rId1"/>
-<sheet name="Résumé crédits" sheetId="2" r:id="rId2"/>
+<sheet name="Resume credits" sheetId="2" r:id="rId2"/>
 </sheets>
 </workbook>`;
 
@@ -160,129 +147,38 @@ Deno.serve(async (req) => {
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
 </Relationships>`;
 
-    // Build ZIP manually (without external lib)
-    const enc = new TextEncoder();
-
-    const zipFiles = {
-      '[Content_Types].xml': enc.encode(contentTypesXml),
-      '_rels/.rels': enc.encode(rootRelsXml),
-      'xl/workbook.xml': enc.encode(workbookXml),
-      'xl/_rels/workbook.xml.rels': enc.encode(relsXml),
-      'xl/worksheets/sheet1.xml': enc.encode(sheet1),
-      'xl/worksheets/sheet2.xml': enc.encode(sheet2),
+    // Build XLSX zip using fflate
+    const xlsxFiles = {
+      '[Content_Types].xml': strToU8(contentTypesXml),
+      '_rels/.rels': strToU8(rootRelsXml),
+      'xl/workbook.xml': strToU8(workbookXml),
+      'xl/_rels/workbook.xml.rels': strToU8(relsXml),
+      'xl/worksheets/sheet1.xml': strToU8(sheet1),
+      'xl/worksheets/sheet2.xml': strToU8(sheet2),
     };
+    const xlsxBuffer = zipSync(xlsxFiles, { level: 0 });
 
-    // Add images to zip
+    // Build outer ZIP with Excel + images using fflate
+    const outerFiles = {
+      'catalogue.xlsx': xlsxBuffer,
+    };
     for (const r of imageResults) {
       if (!r.buffer) continue;
       const fname = imageNaming === 'numero'
         ? String(r.idx + 1).padStart(3, '0') + '.' + r.ext
         : (r.product.reference || `produit_${r.idx + 1}`) + '.' + r.ext;
-      zipFiles[`images/${fname}`] = new Uint8Array(r.buffer);
+      outerFiles[`images/${fname}`] = new Uint8Array(r.buffer);
     }
 
-    // ZIP builder (store only, no compression)
-    const zipParts = [];
-    const centralDirectory = [];
-    let offset = 0;
+    const zipBuffer = zipSync(outerFiles, { level: 0 });
 
-    const crc32 = (data) => {
-      const table = (() => {
-        const t = new Uint32Array(256);
-        for (let i = 0; i < 256; i++) {
-          let c = i;
-          for (let j = 0; j < 8; j++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
-          t[i] = c;
-        }
-        return t;
-      })();
-      let crc = 0xFFFFFFFF;
-      for (let i = 0; i < data.length; i++) crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
-      return (crc ^ 0xFFFFFFFF) >>> 0;
-    };
-
-    const writeUint16LE = (v) => new Uint8Array([v & 0xFF, (v >> 8) & 0xFF]);
-    const writeUint32LE = (v) => new Uint8Array([v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF, (v >> 24) & 0xFF]);
-
-    for (const [name, data] of Object.entries(zipFiles)) {
-      const nameBytes = enc.encode(name);
-      const crc = crc32(data);
-      const size = data.length;
-
-      // Local file header
-      const localHeader = new Uint8Array([
-        0x50, 0x4B, 0x03, 0x04, // signature
-        0x14, 0x00,             // version needed
-        0x00, 0x00,             // flags
-        0x00, 0x00,             // compression (store)
-        0x00, 0x00, 0x00, 0x00, // mod time/date
-        ...writeUint32LE(crc),
-        ...writeUint32LE(size),
-        ...writeUint32LE(size),
-        ...writeUint16LE(nameBytes.length),
-        0x00, 0x00,             // extra field length
-        ...nameBytes
-      ]);
-
-      centralDirectory.push({ name, nameBytes, crc, size, offset });
-      offset += localHeader.length + size;
-
-      zipParts.push(localHeader);
-      zipParts.push(data);
+    // Convert to base64 in chunks to avoid stack overflow
+    const CHUNK = 8192;
+    let base64 = '';
+    for (let i = 0; i < zipBuffer.length; i += CHUNK) {
+      base64 += btoa(String.fromCharCode(...zipBuffer.subarray(i, i + CHUNK)));
     }
 
-    // Central directory
-    const cdStart = offset;
-    for (const entry of centralDirectory) {
-      const cdEntry = new Uint8Array([
-        0x50, 0x4B, 0x01, 0x02, // signature
-        0x14, 0x00,             // version made by
-        0x14, 0x00,             // version needed
-        0x00, 0x00,             // flags
-        0x00, 0x00,             // compression
-        0x00, 0x00, 0x00, 0x00, // mod time/date
-        ...writeUint32LE(entry.crc),
-        ...writeUint32LE(entry.size),
-        ...writeUint32LE(entry.size),
-        ...writeUint16LE(entry.nameBytes.length),
-        0x00, 0x00,             // extra
-        0x00, 0x00,             // comment
-        0x00, 0x00,             // disk start
-        0x00, 0x00,             // int attribs
-        0x00, 0x00, 0x00, 0x00, // ext attribs
-        ...writeUint32LE(entry.offset),
-        ...entry.nameBytes
-      ]);
-      zipParts.push(cdEntry);
-      offset += cdEntry.length;
-    }
-
-    // End of central directory
-    const cdSize = offset - cdStart;
-    const eocd = new Uint8Array([
-      0x50, 0x4B, 0x05, 0x06,
-      0x00, 0x00,
-      0x00, 0x00,
-      ...writeUint16LE(centralDirectory.length),
-      ...writeUint16LE(centralDirectory.length),
-      ...writeUint32LE(cdSize),
-      ...writeUint32LE(cdStart),
-      0x00, 0x00
-    ]);
-    zipParts.push(eocd);
-
-    // Merge all parts
-    const totalSize = zipParts.reduce((s, p) => s + p.length, 0);
-    const zipBuffer = new Uint8Array(totalSize);
-    let pos = 0;
-    for (const part of zipParts) { zipBuffer.set(part, pos); pos += part.length; }
-
-    // Encode as base64 for JSON transport (invoke() doesn't support binary responses)
-    let binary = '';
-    for (let i = 0; i < zipBuffer.length; i++) {
-      binary += String.fromCharCode(zipBuffer[i]);
-    }
-    const base64 = btoa(binary);
     const safeName = (batch.name || 'catalogue').replace(/[^a-z0-9]/gi, '_');
     return Response.json({ base64, filename: `${safeName}_export.zip` });
   } catch (error) {
