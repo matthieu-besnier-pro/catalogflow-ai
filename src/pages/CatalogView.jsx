@@ -1,0 +1,166 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { base44 } from '@/api/base44Client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Button } from "@/components/ui/button";
+import { ArrowLeft, Sparkles, RotateCw, Loader2 } from "lucide-react";
+import ProductTable from '../components/catalog/ProductTable';
+import ProductEditDialog from '../components/catalog/ProductEditDialog';
+import EnrichmentProgress from '../components/catalog/EnrichmentProgress';
+import ExportButtons from '../components/catalog/ExportButtons';
+
+export default function CatalogView() {
+  const { batchId } = useParams();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [editProduct, setEditProduct] = useState(null);
+  const [isEnriching, setIsEnriching] = useState(false);
+  const [enrichingId, setEnrichingId] = useState(null);
+  const [enrichProgress, setEnrichProgress] = useState({ current: 0, total: 0, currentName: '' });
+
+  const { data: batch } = useQuery({
+    queryKey: ['batch', batchId],
+    queryFn: () => base44.entities.CatalogBatch.filter({ id: batchId }).then(r => r[0]),
+    enabled: !!batchId
+  });
+
+  const { data: products = [], isLoading } = useQuery({
+    queryKey: ['products', batchId],
+    queryFn: () => base44.entities.Product.filter({ batch_id: batchId }),
+    enabled: !!batchId
+  });
+
+  const enrichAll = useCallback(async () => {
+    const toEnrich = products.filter(p => !p.enriched);
+    if (toEnrich.length === 0) return;
+
+    setIsEnriching(true);
+    setEnrichProgress({ current: 0, total: toEnrich.length, currentName: '' });
+
+    for (let i = 0; i < toEnrich.length; i++) {
+      const product = toEnrich[i];
+      setEnrichingId(product.id);
+      setEnrichProgress({
+        current: i,
+        total: toEnrich.length,
+        currentName: `${product.reference} ${product.intitule_origine || ''}`
+      });
+
+      try {
+        await base44.functions.invoke('enrichProduct', { productId: product.id });
+      } catch (err) {
+        console.error(`Erreur enrichissement ${product.reference}:`, err);
+      }
+
+      // Refresh products after each enrichment
+      queryClient.invalidateQueries({ queryKey: ['products', batchId] });
+    }
+
+    setEnrichProgress(prev => ({ ...prev, current: toEnrich.length }));
+    setIsEnriching(false);
+    setEnrichingId(null);
+    queryClient.invalidateQueries({ queryKey: ['batch', batchId] });
+  }, [products, batchId, queryClient]);
+
+  const handleSaveProduct = async (updatedProduct) => {
+    const { id, created_date, updated_date, created_by, ...data } = updatedProduct;
+    await base44.entities.Product.update(id, data);
+    queryClient.invalidateQueries({ queryKey: ['products', batchId] });
+    setEditProduct(null);
+  };
+
+  const unenrichedCount = products.filter(p => !p.enriched).length;
+  const hasEnrichedProducts = products.some(p => p.enriched);
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={() => navigate('/')}>
+              <ArrowLeft className="w-4 h-4" />
+            </Button>
+            <div>
+              <h1 className="font-bold text-lg">{batch?.name || 'Catalogue'}</h1>
+              <p className="text-xs text-muted-foreground">
+                {products.length} produit{products.length > 1 ? 's' : ''}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {unenrichedCount > 0 && (
+              <Button
+                onClick={enrichAll}
+                disabled={isEnriching}
+                className="gap-2 shadow-lg shadow-primary/20"
+              >
+                {isEnriching ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4" />
+                )}
+                {isEnriching
+                  ? 'Enrichissement...'
+                  : `Enrichir ${unenrichedCount} produit${unenrichedCount > 1 ? 's' : ''}`
+                }
+              </Button>
+            )}
+            {hasEnrichedProducts && !isEnriching && (
+              <ExportButtons products={products} />
+            )}
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+        {/* Progress */}
+        {isEnriching && (
+          <EnrichmentProgress
+            current={enrichProgress.current}
+            total={enrichProgress.total}
+            currentProduct={enrichProgress.currentName}
+          />
+        )}
+
+        {/* Stats summary */}
+        {hasEnrichedProducts && !isEnriching && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: 'Validés', count: products.filter(p => p.statut_validation === 'Validé').length, color: 'text-emerald-600 bg-emerald-50' },
+              { label: 'Partiels', count: products.filter(p => p.statut_validation === 'Validé partiel').length, color: 'text-amber-600 bg-amber-50' },
+              { label: 'À vérifier', count: products.filter(p => p.statut_validation === 'À vérifier').length, color: 'text-orange-600 bg-orange-50' },
+              { label: 'Introuvables', count: products.filter(p => p.statut_validation === 'Introuvable').length, color: 'text-red-600 bg-red-50' }
+            ].map((stat) => (
+              <div key={stat.label} className={`rounded-xl px-4 py-3 ${stat.color}`}>
+                <p className="text-2xl font-bold">{stat.count}</p>
+                <p className="text-xs font-medium opacity-80">{stat.label}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Table */}
+        {isLoading ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="w-6 h-6 animate-spin text-primary" />
+          </div>
+        ) : (
+          <ProductTable
+            products={products}
+            onEdit={setEditProduct}
+            enrichingId={enrichingId}
+          />
+        )}
+      </main>
+
+      {/* Edit dialog */}
+      <ProductEditDialog
+        product={editProduct}
+        open={!!editProduct}
+        onClose={() => setEditProduct(null)}
+        onSave={handleSaveProduct}
+      />
+    </div>
+  );
+}

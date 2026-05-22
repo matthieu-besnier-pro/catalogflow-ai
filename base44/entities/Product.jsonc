@@ -1,0 +1,87 @@
+{
+  "name": "Product",
+  "type": "object",
+  "properties": {
+    "batch_id": {
+      "type": "string",
+      "description": "ID du lot parent"
+    },
+    "reference": {
+      "type": "string",
+      "description": "R\u00e9f\u00e9rence produit"
+    },
+    "intitule_origine": {
+      "type": "string",
+      "description": "Intitul\u00e9 d'origine brut"
+    },
+    "designation": {
+      "type": "string",
+      "description": "D\u00e9signation commerciale enrichie"
+    },
+    "petit_descriptif": {
+      "type": "string",
+      "description": "Descriptif court commercial"
+    },
+    "photo_url": {
+      "type": "string",
+      "description": "URL de la photo produit"
+    },
+    "tarif_promo_ht": {
+      "type": "number",
+      "description": "Prix promo HT"
+    },
+    "tarif_normal_ht": {
+      "type": "number",
+      "description": "Prix barr\u00e9 / normal HT"
+    },
+    "marque": {
+      "type": "string",
+      "description": "Marque d\u00e9tect\u00e9e"
+    },
+    "categorie": {
+      "type": "string",
+      "description": "Cat\u00e9gorie produit"
+    },
+    "source_image": {
+      "type": "string",
+      "description": "Source de l'image"
+    },
+    "source_info": {
+      "type": "string",
+      "description": "Source des informations"
+    },
+    "niveau_confiance": {
+      "type": "string",
+      "enum": [
+        "\u00c9lev\u00e9",
+        "Moyen",
+        "Faible"
+      ],
+      "description": "Niveau de confiance de la correspondance"
+    },
+    "statut_validation": {
+      "type": "string",
+      "enum": [
+        "Valid\u00e9",
+        "Valid\u00e9 partiel",
+        "\u00c0 v\u00e9rifier",
+        "Introuvable"
+      ],
+      "default": "\u00c0 v\u00e9rifier",
+      "description": "Statut de validation"
+    },
+    "commentaire": {
+      "type": "string",
+      "description": "Commentaires et alertes"
+    },
+    "enriched": {
+      "type": "boolean",
+      "default": false,
+      "description": "Indique si le produit a \u00e9t\u00e9 enrichi par l'IA"
+    }
+  },
+  "required": [
+    "reference",
+    "batch_id"
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "name": "CatalogBatch",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Nom du lot de produits"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "en_cours",
+        "termine",
+        "erreur"
+      ],
+      "default": "en_cours",
+      "description": "Statut du traitement"
+    },
+    "total_products": {
+      "type": "number",
+      "default": 0
+    },
+    "processed_products": {
+      "type": "number",
+      "default": 0
+    },
+    "raw_input": {
+      "type": "string",
+      "description": "Texte brut coll\u00e9 par l'utilisateur"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}
