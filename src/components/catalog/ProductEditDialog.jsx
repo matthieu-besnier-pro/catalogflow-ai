@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -15,7 +15,11 @@ import { Save, ExternalLink } from "lucide-react";
 import StatusBadge from './StatusBadge';
 
 export default function ProductEditDialog({ product, open, onClose, onSave }) {
-  const [form, setForm] = useState({ ...product });
+  const [form, setForm] = useState({});
+
+  useEffect(() => {
+    if (product) setForm({ ...product });
+  }, [product]);
 
   const handleChange = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));

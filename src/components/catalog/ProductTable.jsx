@@ -83,14 +83,29 @@ export default function ProductTable({ products, onEdit, enrichingId }) {
                     </TableCell>
                     <TableCell>
                       {product.photo_url ? (
-                        <img
-                          src={product.photo_url}
-                          alt=""
-                          className="w-10 h-10 object-contain rounded border bg-white"
-                          onError={(e) => { e.target.style.display = 'none'; }}
-                        />
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <a href={product.photo_url} target="_blank" rel="noopener noreferrer">
+                              <img
+                                src={product.photo_url}
+                                alt=""
+                                className="w-12 h-12 object-contain rounded border bg-white hover:scale-110 transition-transform cursor-pointer"
+                                onError={(e) => {
+                                  e.target.replaceWith(Object.assign(document.createElement('div'), {
+                                    className: 'w-12 h-12 rounded border bg-amber-50 flex items-center justify-center text-amber-500 text-xs text-center p-1',
+                                    textContent: '⚠️ lien cassé'
+                                  }));
+                                }}
+                              />
+                            </a>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="p-1">
+                            <img src={product.photo_url} alt="" className="max-w-48 max-h-48 object-contain" 
+                              onError={(e) => { e.target.style.display='none'; }} />
+                          </TooltipContent>
+                        </Tooltip>
                       ) : (
-                        <div className="w-10 h-10 rounded border bg-muted flex items-center justify-center">
+                        <div className="w-12 h-12 rounded border bg-muted flex items-center justify-center">
                           <span className="text-xs text-muted-foreground">—</span>
                         </div>
                       )}
