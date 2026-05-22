@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Download, FileArchive, Hash, Tag, Loader2 } from "lucide-react";
 import { base44 } from '@/api/base44Client';
-import { appParams } from '@/lib/app-params';
+import { toast } from "sonner";
 
 export default function ExportDialog({ open, onClose, products, batchId, batchName }) {
   const [imageNaming, setImageNaming] = useState('ref');
@@ -19,32 +19,31 @@ export default function ExportDialog({ open, onClose, products, batchId, batchNa
   const handleExport = async () => {
     setIsExporting(true);
     try {
-      const { token, appId, appBaseUrl, functionsVersion } = appParams;
-      const baseUrl = appBaseUrl || 'https://base44.app';
-      const version = functionsVersion || 'v1';
-      const url = `${baseUrl}/api/apps/${appId}/functions/${version}/exportCatalog`;
-
-      const res = await fetch(url, {
+      const res = await base44.functions.fetch('exportCatalog', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ batchId, imageNaming })
       });
 
-      if (!res.ok) throw new Error('Erreur export');
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Erreur export (${res.status}): ${errText}`);
+      }
+
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = objectUrl;
       const safeName = (batchName || 'catalogue').replace(/[^a-z0-9]/gi, '_');
       a.download = `${safeName}_export.zip`;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(objectUrl);
       onClose();
     } catch (err) {
-      console.error(err);
+      console.error('Export error:', err);
+      toast.error(`Erreur lors de l'export : ${err.message}`);
     } finally {
       setIsExporting(false);
     }
