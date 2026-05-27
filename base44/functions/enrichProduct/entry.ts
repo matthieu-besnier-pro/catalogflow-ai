@@ -201,7 +201,7 @@ Deno.serve(async (req) => {
     // Lancement en parallèle : LLM + images DDG (requête normale + requête fond blanc)
     const [enrichmentResult, ddgImageUrls] = await Promise.all([
       base44.asServiceRole.integrations.Core.InvokeLLM({
-        model: 'claude_sonnet_4_6',
+        model: 'gemini_3_1_pro',
         prompt: `Tu es un expert en identification et recherche de produits commerciaux.
 Recherche ce produit sur internet avec précision maximale.
 
