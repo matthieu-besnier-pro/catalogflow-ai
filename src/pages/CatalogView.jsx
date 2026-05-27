@@ -35,31 +35,53 @@ export default function CatalogView() {
     const toEnrich = products.filter(p => !p.enriched);
     if (toEnrich.length === 0) return;
 
+    const CONCURRENCY = 3;
     cancelEnrichRef.current = false;
     setIsEnriching(true);
+
+    const completedRef = { count: 0 };
+    const activeNames = new Set();
+
     setEnrichProgress({ current: 0, total: toEnrich.length, currentName: '' });
 
-    for (let i = 0; i < toEnrich.length; i++) {
-      if (cancelEnrichRef.current) break;
+    // Traitement en pool de CONCURRENCY tâches en parallèle
+    const queue = [...toEnrich];
 
-      const product = toEnrich[i];
-      setEnrichingId(product.id);
-      setEnrichProgress({
-        current: i,
-        total: toEnrich.length,
-        currentName: `${product.reference} ${product.intitule_origine || ''}`
-      });
+    const runWorker = async () => {
+      while (queue.length > 0) {
+        if (cancelEnrichRef.current) break;
+        const product = queue.shift();
+        if (!product) break;
 
-      try {
-        await base44.functions.invoke('enrichProduct', { productId: product.id });
-      } catch (err) {
-        console.error(`Erreur enrichissement ${product.reference}:`, err);
+        activeNames.add(`${product.reference} ${product.intitule_origine || ''}`);
+        setEnrichingId(product.id);
+        setEnrichProgress({
+          current: completedRef.count,
+          total: toEnrich.length,
+          currentName: [...activeNames].join(' · ')
+        });
+
+        try {
+          await base44.functions.invoke('enrichProduct', { productId: product.id });
+        } catch (err) {
+          console.error(`Erreur enrichissement ${product.reference}:`, err);
+        }
+
+        activeNames.delete(`${product.reference} ${product.intitule_origine || ''}`);
+        completedRef.count += 1;
+        queryClient.invalidateQueries({ queryKey: ['products', batchId] });
+        setEnrichProgress({
+          current: completedRef.count,
+          total: toEnrich.length,
+          currentName: [...activeNames].join(' · ')
+        });
       }
+    };
 
-      queryClient.invalidateQueries({ queryKey: ['products', batchId] });
-    }
+    // Lance N workers en parallèle
+    await Promise.all(Array.from({ length: CONCURRENCY }, runWorker));
 
-    setEnrichProgress(prev => ({ ...prev, current: toEnrich.length }));
+    setEnrichProgress(prev => ({ ...prev, current: toEnrich.length, currentName: '' }));
     setIsEnriching(false);
     setEnrichingId(null);
     cancelEnrichRef.current = false;
