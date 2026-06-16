@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Download, FileArchive, Hash, Tag, Loader2 } from "lucide-react";
+import { Download, FileArchive, FileSpreadsheet, Hash, Tag, Loader2 } from "lucide-react";
 import { base44 } from '@/api/base44Client';
 import { toast } from "sonner";
 
@@ -16,19 +16,37 @@ export default function ExportDialog({ open, onClose, products, batchId, batchNa
   const [imageNaming, setImageNaming] = useState('ref');
   const [isExporting, setIsExporting] = useState(false);
 
-  const handleExport = async () => {
+  const downloadFile = (fileUrl, filename) => {
+    const a = document.createElement('a');
+    a.href = fileUrl;
+    a.download = filename;
+    a.target = '_blank';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const handleExportZip = async () => {
     setIsExporting(true);
     try {
       const res = await base44.functions.invoke('exportCatalog', { batchId, imageNaming });
       const { file_url, filename } = res.data;
+      downloadFile(file_url, filename || `catalogue_export.zip`);
+      onClose();
+    } catch (err) {
+      console.error('Export error:', err);
+      toast.error(`Erreur lors de l'export : ${err.message}`);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
-      const a = document.createElement('a');
-      a.href = file_url;
-      a.download = filename || `catalogue_export.zip`;
-      a.target = '_blank';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+  const handleExportXlsx = async () => {
+    setIsExporting(true);
+    try {
+      const res = await base44.functions.invoke('exportCatalogXlsx', { batchId });
+      const { file_url, filename } = res.data;
+      downloadFile(file_url, filename || `catalogue.xlsx`);
       onClose();
     } catch (err) {
       console.error('Export error:', err);
@@ -106,15 +124,26 @@ export default function ExportDialog({ open, onClose, products, batchId, batchNa
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex-col sm:flex-row gap-3">
           <Button variant="outline" onClick={onClose} disabled={isExporting}>Annuler</Button>
-          <Button onClick={handleExport} disabled={isExporting} className="gap-2">
-            {isExporting ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /> Préparation...</>
-            ) : (
-              <><Download className="w-4 h-4" /> Télécharger le ZIP</>
-            )}
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={handleExportXlsx} disabled={isExporting} variant="secondary" className="gap-2">
+              {isExporting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="w-4 h-4" />
+              )}
+              XLSX seul
+            </Button>
+            <Button onClick={handleExportZip} disabled={isExporting} className="gap-2">
+              {isExporting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              ZIP complet
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
