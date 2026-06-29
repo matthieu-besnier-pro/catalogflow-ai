@@ -124,30 +124,84 @@ export default function CatagriToolbar({ opts, onChange, productCount, allCatego
           {/* En-tête/Pied */}
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Structure</p>
-            <div className="space-y-2">
+            <div className="space-y-3">
+              {/* Header */}
               <div className="flex items-center gap-2">
-                <Checkbox
-                  id="showHeader"
-                  checked={opts.showHeader}
-                  onCheckedChange={v => set('showHeader', v)}
-                />
+                <Checkbox id="showHeader" checked={opts.showHeader} onCheckedChange={v => set('showHeader', v)} />
                 <Label htmlFor="showHeader" className="text-xs font-normal cursor-pointer">Afficher en-tête</Label>
               </div>
+              {opts.showHeader && (
+                <div className="ml-6 space-y-2">
+                  <Label className="text-xs">Style en-tête</Label>
+                  <Select value={opts.headerStyle || 'simple'} onValueChange={v => set('headerStyle', v)}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="simple" className="text-xs">Simple (bandeau couleur)</SelectItem>
+                      <SelectItem value="promo" className="text-xs">Promo (logo + dates + catégories)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {opts.headerStyle === 'promo' && (
+                    <div className="space-y-2 pt-1">
+                      <Input placeholder="Titre promo (ex: LE RENDEZ-VOUS DES BONNES AFFAIRES)" value={opts.promoTitle || ''} onChange={e => set('promoTitle', e.target.value)} className="h-7 text-xs" />
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input placeholder="Du (ex: 18 AOÛT)" value={opts.promoDateFrom || ''} onChange={e => set('promoDateFrom', e.target.value)} className="h-7 text-xs" />
+                        <Input placeholder="Au (ex: 12 SEPTEMBRE)" value={opts.promoDateTo || ''} onChange={e => set('promoDateTo', e.target.value)} className="h-7 text-xs" />
+                      </div>
+                      <Input placeholder="Année (ex: 2025)" value={opts.promoYear || ''} onChange={e => set('promoYear', e.target.value)} className="h-7 text-xs" />
+                      <Input placeholder="Catégories séparées par , (ex: ÉLEVAGE,OUTILLAGE)" value={(opts.headerCategories || []).join(', ')} onChange={e => set('headerCategories', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} className="h-7 text-xs" />
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-center gap-2">
                 <Checkbox
-                  id="showFooter"
-                  checked={opts.showFooter}
-                  onCheckedChange={v => set('showFooter', v)}
+                  id="showSectionBanner"
+                  checked={opts.showSectionBanner || false}
+                  onCheckedChange={v => set('showSectionBanner', v)}
                 />
+                <Label htmlFor="showSectionBanner" className="text-xs font-normal cursor-pointer">Bandeau catégorie de section</Label>
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center gap-2">
+                <Checkbox id="showFooter" checked={opts.showFooter} onCheckedChange={v => set('showFooter', v)} />
                 <Label htmlFor="showFooter" className="text-xs font-normal cursor-pointer">Afficher pied de page</Label>
               </div>
               {opts.showFooter && (
-                <Input
-                  placeholder="Texte du pied..."
-                  value={opts.footerText}
-                  onChange={e => set('footerText', e.target.value)}
-                  className="h-7 text-xs mt-2"
-                />
+                <div className="ml-6 space-y-2">
+                  <Label className="text-xs">Style pied de page</Label>
+                  <Select value={opts.footerStyle || 'simple'} onValueChange={v => set('footerStyle', v)}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="simple" className="text-xs">Simple (bande couleur)</SelectItem>
+                      <SelectItem value="magasins" className="text-xs">Magasins participants</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {opts.footerStyle === 'simple' && (
+                    <Input placeholder="Texte du pied..." value={opts.footerText || ''} onChange={e => set('footerText', e.target.value)} className="h-7 text-xs" />
+                  )}
+                  {opts.footerStyle === 'magasins' && (
+                    <div className="space-y-2 pt-1">
+                      <p className="text-xs text-muted-foreground">Contact commercial :</p>
+                      <Input placeholder="Nom (ex: Maxime MAAS)" value={opts.contactName || ''} onChange={e => set('contactName', e.target.value)} className="h-7 text-xs" />
+                      <Input placeholder="Rôle (ex: commercial pièces itinérant)" value={opts.contactRole || ''} onChange={e => set('contactRole', e.target.value)} className="h-7 text-xs" />
+                      <Input placeholder="Téléphone (ex: 07 87 50 75 18)" value={opts.contactPhone || ''} onChange={e => set('contactPhone', e.target.value)} className="h-7 text-xs" />
+                      <p className="text-xs text-muted-foreground pt-1">Magasins (JSON) :</p>
+                      <textarea
+                        className="w-full text-xs border border-input rounded-md p-2 font-mono resize-y"
+                        rows={5}
+                        placeholder={'[\n  {"name":"Agence X","address":"1 Rue Y","city":"87160 VILLE","phone":"05 55 00 00 00","email":"x@y.fr"}\n]'}
+                        value={opts.storesJson || ''}
+                        onChange={e => {
+                          set('storesJson', e.target.value);
+                          try { set('stores', JSON.parse(e.target.value)); } catch {}
+                        }}
+                      />
+                      <Input placeholder="Mentions légales..." value={opts.legalText || ''} onChange={e => set('legalText', e.target.value)} className="h-7 text-xs" />
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>

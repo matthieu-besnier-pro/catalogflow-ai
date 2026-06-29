@@ -1,5 +1,7 @@
 import React from 'react';
 import CatagriProductCard from './CatagriProductCard';
+import CatagriPageHeader from './CatagriPageHeader';
+import CatagriPageFooter from './CatagriPageFooter';
 
 const FILIALE_COLORS = {
   none:          { primary: '#1a2744', accent: '#cc0000' },
@@ -23,7 +25,7 @@ const FILIALE_NAMES = {
   tmc:           'TMC',
 };
 
-export default function CatagriPageView({ products, opts, coverData, isFirstPage, allCategories = [] }) {
+export default function CatagriPageView({ products, opts, coverData, isFirstPage, allCategories = [], pageNum = 1 }) {
   const filiale = opts.filiale || 'none';
   const colors = FILIALE_COLORS[filiale] || FILIALE_COLORS.none;
   const filialeName = FILIALE_NAMES[filiale] || '';
@@ -37,8 +39,11 @@ export default function CatagriPageView({ products, opts, coverData, isFirstPage
   const gridStyle = {
     display: 'grid',
     gridTemplateColumns: `repeat(${cols}, 1fr)`,
-    gap: '8px',
+    gap: `${opts.gap || 8}px`,
   };
+
+  const headerStyle = opts.headerStyle || 'simple'; // 'simple' | 'promo'
+  const footerStyle = opts.footerStyle || 'simple'; // 'simple' | 'magasins'
 
   return (
     <div
@@ -54,59 +59,85 @@ export default function CatagriPageView({ products, opts, coverData, isFirstPage
         fontFamily: "'Inter', Arial, sans-serif",
       }}
     >
-      {/* En-tête de page */}
-      <div
-        style={{
-          background: colors.primary,
-          color: '#fff',
-          padding: '10px 20px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      {/* En-tête */}
+      {opts.showHeader && (
+        headerStyle === 'promo' ? (
+          <CatagriPageHeader
+            opts={opts}
+            coverData={coverData}
+            colors={colors}
+            filiale={filiale}
+            filialeName={filialeName}
+            pageNum={pageNum}
+          />
+        ) : (
+          /* Header simple */
           <div
             style={{
-              width: 6,
-              height: 28,
-              background: colors.accent,
-              borderRadius: 2,
+              background: colors.primary,
+              color: '#fff',
+              padding: '10px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
               flexShrink: 0,
             }}
-          />
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 15, letterSpacing: 1, textTransform: 'uppercase' }}>
-              {filialeName || coverData?.title || 'CATALOGUE'}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 6, height: 28, background: colors.accent, borderRadius: 2, flexShrink: 0 }} />
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 15, letterSpacing: 1, textTransform: 'uppercase' }}>
+                  {filialeName || coverData?.title || 'CATALOGUE'}
+                </div>
+                <div style={{ fontSize: 10, opacity: 0.7, marginTop: 1 }}>
+                  {coverData?.title}
+                </div>
+              </div>
             </div>
-            <div style={{ fontSize: 10, opacity: 0.7, marginTop: 1 }}>
-              {coverData?.title}{filialeName ? ` · ${coverData?.title}` : ''}
+            <div style={{
+              background: colors.accent,
+              color: '#fff',
+              fontWeight: 700,
+              fontSize: 11,
+              padding: '3px 10px',
+              borderRadius: 3,
+              textTransform: 'uppercase',
+              letterSpacing: 0.5,
+            }}>
+              {opts.template}
             </div>
           </div>
-        </div>
+        )
+      )}
+
+      {/* Catégorie de page (bandeau section style page 2/3 du PDF) */}
+      {opts.showSectionBanner && products[0]?.famille && (
         <div style={{
           background: colors.accent,
-          color: '#fff',
-          fontWeight: 700,
-          fontSize: 11,
-          padding: '3px 10px',
-          borderRadius: 3,
+          color: colors.primary,
+          fontWeight: 900,
+          fontSize: 13,
+          padding: '6px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          flexShrink: 0,
           textTransform: 'uppercase',
-          letterSpacing: 0.5,
+          letterSpacing: 1,
         }}>
-          {opts.template}
+          <div style={{ width: 16, height: 16, background: colors.primary, borderRadius: 3, flexShrink: 0 }} />
+          {products[0].famille}
         </div>
-      </div>
+      )}
 
       {/* Grille produits */}
-      <div style={{ flex: 1, padding: `${opts.padding}px ${opts.padding}px`, background: '#f8f8f8', overflowY: 'auto' }}>
+      <div style={{ flex: 1, padding: `${opts.padding}px`, background: '#f8f8f8', overflowY: 'auto' }}>
         {products.length === 0 ? (
           <div style={{ textAlign: 'center', color: '#aaa', fontSize: 13, paddingTop: 60 }}>
             Aucun produit sur cette page
           </div>
         ) : (
-          <div style={{ ...gridStyle, gap: `${opts.gap}px` }}>
+          <div style={gridStyle}>
             {products.map(p => (
               <CatagriProductCard
                 key={p._id}
@@ -122,24 +153,13 @@ export default function CatagriPageView({ products, opts, coverData, isFirstPage
 
       {/* Pied de page */}
       {opts.showFooter && (
-        <div
-          style={{
-            background: colors.primary,
-            color: 'rgba(255,255,255,0.6)',
-            fontSize: 9,
-            padding: '5px 20px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexShrink: 0,
-          }}
-        >
-          <span>{filialeName || 'CatalogFlowAI'}</span>
-          <span style={{ color: colors.accent, fontWeight: 700, fontSize: 11 }}>
-            {products[0]?.page && `Page ${products[0].page}`}
-          </span>
-          <span>{opts.footerText}</span>
-        </div>
+        <CatagriPageFooter
+          opts={opts}
+          colors={colors}
+          filiale={filiale}
+          filialeName={filialeName}
+          pageNum={pageNum}
+        />
       )}
     </div>
   );

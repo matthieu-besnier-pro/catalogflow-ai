@@ -228,6 +228,7 @@ export default function CatagriEditor() {
             coverData={projet.cover}
             isFirstPage={currentPage === 1}
             allCategories={[...new Set(rawProducts.map(p => p.categorie).filter(Boolean))]}
+            pageNum={currentPage}
           />
         </main>
       </div>
