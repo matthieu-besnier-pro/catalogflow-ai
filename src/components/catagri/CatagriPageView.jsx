@@ -2,6 +2,7 @@ import React from 'react';
 import CatagriProductCard from './CatagriProductCard';
 import CatagriPageHeader from './CatagriPageHeader';
 import CatagriPageFooter from './CatagriPageFooter';
+import CatagriTableView from './CatagriTableView';
 
 const FILIALE_COLORS = {
   none:          { primary: '#1a2744', accent: '#cc0000' },
@@ -130,12 +131,14 @@ export default function CatagriPageView({ products, opts, coverData, isFirstPage
         </div>
       )}
 
-      {/* Grille produits */}
-      <div style={{ flex: 1, padding: `${opts.padding}px`, background: '#f8f8f8', overflowY: 'auto' }}>
+      {/* Grille ou tableau produits */}
+      <div style={{ flex: 1, padding: `${opts.padding}px`, background: opts.template === 'tableau' ? '#fff' : '#f8f8f8', overflowY: 'auto' }}>
         {products.length === 0 ? (
           <div style={{ textAlign: 'center', color: '#aaa', fontSize: 13, paddingTop: 60 }}>
             Aucun produit sur cette page
           </div>
+        ) : opts.template === 'tableau' ? (
+          <CatagriTableView products={products} colors={colors} opts={opts} />
         ) : (
           <div style={gridStyle}>
             {products.map(p => (
