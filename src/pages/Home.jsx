@@ -9,19 +9,20 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handleImport = async (rawText, importName) => {
+  const handleImport = async (rawText, importName, xlsxRows) => {
     setIsLoading(true);
     try {
       const batch = await base44.entities.CatalogBatch.create({
         name: importName?.trim() || `Import du ${new Date().toLocaleDateString('fr-FR')}`,
         status: 'en_cours',
-        raw_input: rawText
+        raw_input: rawText || `${xlsxRows?.length || 0} produits importés depuis XLSX`
       });
 
-      await base44.functions.invoke('parseProducts', {
-        rawText,
-        batchId: batch.id
-      });
+      if (xlsxRows && xlsxRows.length > 0) {
+        await base44.functions.invoke('parseXlsxMailing', { rows: xlsxRows, batchId: batch.id });
+      } else {
+        await base44.functions.invoke('parseProducts', { rawText, batchId: batch.id });
+      }
 
       navigate(`/catalog/${batch.id}`);
     } catch (err) {

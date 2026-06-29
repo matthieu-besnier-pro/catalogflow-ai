@@ -2,29 +2,78 @@ import React, { useState, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
-import { Upload, ClipboardPaste, FileSpreadsheet, ArrowRight, Loader2, Zap, AlertTriangle } from "lucide-react";
+import { Upload, ClipboardPaste, FileSpreadsheet, ArrowRight, Loader2, Zap, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import * as XLSX from 'xlsx';
 
 export default function ImportZone({ onImport, isLoading }) {
   const [rawText, setRawText] = useState('');
   const [importName, setImportName] = useState('');
   const [activeTab, setActiveTab] = useState('paste');
+  const [xlsxRows, setXlsxRows] = useState(null); // rows parsées depuis XLSX mailing
+  const [xlsxFileName, setXlsxFileName] = useState('');
   const fileInputRef = useRef(null);
+
+  // Détecte et parse le format MAILINGRDV : PAGE X + colonnes N°/REFERENCE/DESIGNATION/PRIX/COMMENTAIRE
+  const parseMailingXlsx = (workbook) => {
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+    const rows = [];
+    for (const row of raw) {
+      if (!row || row.length < 2) continue;
+      // Ignore les lignes d'en-tête (PAGE X, REFERENCE, etc.)
+      const first = String(row[0] || '').trim();
+      const second = String(row[1] || '').trim();
+      if (!first || first.toLowerCase().startsWith('page')) continue;
+      if (second.toLowerCase() === 'reference' || second.toLowerCase() === 'référence') continue;
+      // Ligne valide : premier champ = numéro (entier), second = référence
+      const num = parseInt(first, 10);
+      if (isNaN(num)) continue;
+      const reference = second;
+      if (!reference) continue;
+      // Cherche désignation dans les colonnes (col index 2 à 6)
+      let designation = '';
+      for (let i = 2; i <= 6; i++) {
+        if (row[i] && String(row[i]).trim()) { designation = String(row[i]).trim(); break; }
+      }
+      // Prix : col index 7 ou 8
+      let prix = null;
+      for (let i = 7; i <= 9; i++) {
+        if (row[i] !== null && row[i] !== undefined && row[i] !== '') {
+          const p = parseFloat(String(row[i]).replace(',', '.'));
+          if (!isNaN(p)) { prix = p; break; }
+        }
+      }
+      // Commentaire : col 10+
+      let commentaire = '';
+      for (let i = 10; i < row.length; i++) {
+        if (row[i] && String(row[i]).trim()) { commentaire = String(row[i]).trim(); break; }
+      }
+      rows.push({ numero: num, reference, designation, prix, commentaire });
+    }
+    return rows;
+  };
 
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
-    if (file.name.endsWith('.csv') || file.name.endsWith('.txt')) {
-      const text = await file.text();
-      setRawText(text);
-      setActiveTab('paste');
-    } else {
-      // For Excel files, read as text (basic CSV-like parsing)
-      const text = await file.text();
-      setRawText(text);
-      setActiveTab('paste');
+
+    if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const rows = parseMailingXlsx(workbook);
+      if (rows.length > 0) {
+        setXlsxRows(rows);
+        setXlsxFileName(file.name);
+        if (!importName) setImportName(file.name.replace(/\.[^.]+$/, ''));
+        return;
+      }
     }
+    // Fallback texte
+    const text = await file.text();
+    setRawText(text);
+    setXlsxRows(null);
+    setActiveTab('paste');
   };
 
   const handlePaste = async () => {
@@ -32,7 +81,7 @@ export default function ImportZone({ onImport, isLoading }) {
     setRawText(text);
   };
 
-  const lineCount = rawText.split('\n').filter(l => l.trim()).length;
+  const lineCount = xlsxRows ? xlsxRows.length : rawText.split('\n').filter(l => l.trim()).length;
 
   return (
     <motion.div
@@ -103,6 +152,43 @@ export default function ImportZone({ onImport, isLoading }) {
                 </p>
               )}
             </div>
+          ) : xlsxRows ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 p-4 rounded-xl bg-emerald-50 border border-emerald-200">
+                <CheckCircle2 className="w-6 h-6 text-emerald-500 shrink-0" />
+                <div className="flex-1">
+                  <p className="font-semibold text-emerald-800 text-sm">{xlsxFileName}</p>
+                  <p className="text-xs text-emerald-600">{xlsxRows.length} produits détectés au format MAILING</p>
+                </div>
+                <button
+                  onClick={() => { setXlsxRows(null); setXlsxFileName(''); fileInputRef.current.value = ''; }}
+                  className="text-xs text-emerald-700 underline hover:no-underline"
+                >Changer</button>
+              </div>
+              {/* Aperçu du tableau */}
+              <div className="rounded-lg border border-border overflow-hidden text-xs">
+                <div className="grid grid-cols-[32px_100px_1fr_70px] bg-muted font-semibold">
+                  <div className="p-2 text-center border-r border-border">N°</div>
+                  <div className="p-2 border-r border-border">Référence</div>
+                  <div className="p-2 border-r border-border">Désignation</div>
+                  <div className="p-2 text-right">Prix HT</div>
+                </div>
+                {xlsxRows.slice(0, 6).map((r, i) => (
+                  <div key={i} className={`grid grid-cols-[32px_100px_1fr_70px] ${i % 2 === 0 ? '' : 'bg-muted/40'}`}>
+                    <div className="p-2 text-center text-muted-foreground border-r border-border">{r.numero}</div>
+                    <div className="p-2 font-mono text-primary border-r border-border truncate">{r.reference}</div>
+                    <div className="p-2 border-r border-border truncate">{r.designation || <span className="text-muted-foreground italic">—</span>}</div>
+                    <div className="p-2 text-right font-semibold">{r.prix != null ? `${r.prix} €` : '—'}</div>
+                  </div>
+                ))}
+                {xlsxRows.length > 6 && (
+                  <div className="p-2 text-center text-muted-foreground bg-muted/20">
+                    + {xlsxRows.length - 6} autres produits…
+                  </div>
+                )}
+              </div>
+              <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.txt" onChange={handleFileUpload} className="hidden" />
+            </div>
           ) : (
             <div
               onClick={() => fileInputRef.current?.click()}
@@ -115,6 +201,7 @@ export default function ImportZone({ onImport, isLoading }) {
               <p className="text-sm text-muted-foreground">
                 Formats acceptés : .csv, .xlsx, .txt
               </p>
+              <p className="text-xs text-muted-foreground mt-1 text-primary/70">✓ Format MAILING (N° | Référence | Désignation | Prix HT) détecté automatiquement</p>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -144,8 +231,8 @@ export default function ImportZone({ onImport, isLoading }) {
           <div className="mt-4 flex justify-end">
             <Button
               size="lg"
-              disabled={!rawText.trim() || isLoading}
-              onClick={() => onImport(rawText, importName)}
+              disabled={(!rawText.trim() && !xlsxRows) || isLoading}
+              onClick={() => onImport(rawText, importName, xlsxRows)}
               className="gap-2 px-8 shadow-lg shadow-primary/25"
             >
               {isLoading ? (
