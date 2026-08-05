@@ -2,16 +2,19 @@ import React, { useState, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
-import { Upload, ClipboardPaste, FileSpreadsheet, ArrowRight, Loader2, Zap, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Upload, ClipboardPaste, FileSpreadsheet, ArrowRight, Loader2, Zap, AlertTriangle, CheckCircle2, ImageIcon, ScanLine } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as XLSX from 'xlsx';
+import { base44 } from '@/api/base44Client';
 
 export default function ImportZone({ onImport, isLoading }) {
   const [rawText, setRawText] = useState('');
   const [importName, setImportName] = useState('');
   const [activeTab, setActiveTab] = useState('paste');
-  const [xlsxRows, setXlsxRows] = useState(null); // rows parsées depuis XLSX mailing
-  const [xlsxFileName, setXlsxFileName] = useState('');
+  const [parsedRows, setParsedRows] = useState(null); // rows parsées (XLSX ou image)
+  const [parsedFileName, setParsedFileName] = useState('');
+  const [parsedSource, setParsedSource] = useState(null); // 'xlsx' | 'image'
+  const [isOcrLoading, setIsOcrLoading] = useState(false);
   const fileInputRef = useRef(null);
 
   // Détecte et parse le format MAILINGRDV : PAGE X + colonnes N°/REFERENCE/DESIGNATION/PRIX/COMMENTAIRE
@@ -63,16 +66,72 @@ export default function ImportZone({ onImport, isLoading }) {
       const workbook = XLSX.read(buffer, { type: 'array' });
       const rows = parseMailingXlsx(workbook);
       if (rows.length > 0) {
-        setXlsxRows(rows);
-        setXlsxFileName(file.name);
+        setParsedRows(rows);
+        setParsedFileName(file.name);
+        setParsedSource('xlsx');
         if (!importName) setImportName(file.name.replace(/\.[^.]+$/, ''));
         return;
       }
     }
+
+    // Image → OCR via IA vision
+    if (file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(file.name)) {
+      setIsOcrLoading(true);
+      try {
+        const { file_url } = await base44.integrations.Core.UploadFile({ file });
+        const res = await base44.integrations.Core.InvokeLLM({
+          prompt: `Tu es un assistant OCR spécialisé dans l'extraction de catalogues produits. Analyse cette image qui contient un tableau/liste de produits. Pour CHAQUE produit visible, extrais :
+- "reference" : le code/SKU produit (souvent préfixé par une marque abrégée comme LUB, PBL, PPK, SOD, BAR, UKA, AIG, KLI, etc.)
+- "designation" : le texte descriptif du produit
+- "prix" : le prix HT en nombre (virgule = décimale, ex: "11,72" → 11.72)
+
+Retourne TOUS les produits visibles sur l'image, sans en oublier aucun. Si une colonne prix est absente pour un produit, mets prix à null.`,
+          file_urls: [file_url],
+          response_json_schema: {
+            type: "object",
+            properties: {
+              products: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    reference: { type: "string" },
+                    designation: { type: "string" },
+                    prix: { type: "number" }
+                  }
+                }
+              }
+            }
+          }
+        });
+        const rows = (res.products || []).map((p, i) => ({
+          numero: i + 1,
+          reference: String(p.reference || '').trim(),
+          designation: String(p.designation || '').trim(),
+          prix: p.prix != null ? Number(p.prix) : null,
+          commentaire: ''
+        })).filter(r => r.reference);
+        if (rows.length > 0) {
+          setParsedRows(rows);
+          setParsedFileName(file.name);
+          setParsedSource('image');
+          if (!importName) setImportName(file.name.replace(/\.[^.]+$/, ''));
+        } else {
+          alert('Aucun produit détecté sur cette image. Essayez une image plus nette.');
+        }
+      } catch (err) {
+        console.error('OCR error:', err);
+        alert(`Erreur lors de la lecture de l'image : ${err.message}`);
+      } finally {
+        setIsOcrLoading(false);
+      }
+      return;
+    }
+
     // Fallback texte
     const text = await file.text();
     setRawText(text);
-    setXlsxRows(null);
+    setParsedRows(null);
     setActiveTab('paste');
   };
 
@@ -81,7 +140,7 @@ export default function ImportZone({ onImport, isLoading }) {
     setRawText(text);
   };
 
-  const lineCount = xlsxRows ? xlsxRows.length : rawText.split('\n').filter(l => l.trim()).length;
+  const lineCount = parsedRows ? parsedRows.length : rawText.split('\n').filter(l => l.trim()).length;
 
   return (
     <motion.div
@@ -152,42 +211,55 @@ export default function ImportZone({ onImport, isLoading }) {
                 </p>
               )}
             </div>
-          ) : xlsxRows ? (
+          ) : isOcrLoading ? (
+            <div className="border-2 border-dashed border-primary/40 rounded-xl p-12 text-center bg-primary/5">
+              <ScanLine className="w-12 h-12 mx-auto text-primary mb-4 animate-pulse" />
+              <p className="font-medium text-foreground mb-1">
+                Lecture de l'image en cours…
+              </p>
+              <p className="text-sm text-muted-foreground">
+                L'IA analyse votre capture d'écran pour extraire les produits
+              </p>
+              <Loader2 className="w-5 h-5 mx-auto mt-4 animate-spin text-primary" />
+            </div>
+          ) : parsedRows ? (
             <div className="space-y-3">
               <div className="flex items-center gap-3 p-4 rounded-xl bg-emerald-50 border border-emerald-200">
                 <CheckCircle2 className="w-6 h-6 text-emerald-500 shrink-0" />
                 <div className="flex-1">
-                  <p className="font-semibold text-emerald-800 text-sm">{xlsxFileName}</p>
-                  <p className="text-xs text-emerald-600">{xlsxRows.length} produits détectés au format MAILING</p>
+                  <p className="font-semibold text-emerald-800 text-sm">{parsedFileName}</p>
+                  <p className="text-xs text-emerald-600">
+                    {parsedRows.length} produits détectés {parsedSource === 'image' ? 'depuis l\'image' : 'au format MAILING'}
+                  </p>
                 </div>
                 <button
-                  onClick={() => { setXlsxRows(null); setXlsxFileName(''); fileInputRef.current.value = ''; }}
+                  onClick={() => { setParsedRows(null); setParsedFileName(''); setParsedSource(null); fileInputRef.current.value = ''; }}
                   className="text-xs text-emerald-700 underline hover:no-underline"
                 >Changer</button>
               </div>
               {/* Aperçu du tableau */}
               <div className="rounded-lg border border-border overflow-hidden text-xs">
-                <div className="grid grid-cols-[32px_100px_1fr_70px] bg-muted font-semibold">
-                  <div className="p-2 text-center border-r border-border">N°</div>
+                <div className={`grid ${parsedSource === 'image' ? 'grid-cols-[100px_1fr_70px]' : 'grid-cols-[32px_100px_1fr_70px]'} bg-muted font-semibold`}>
+                  {parsedSource !== 'image' && <div className="p-2 text-center border-r border-border">N°</div>}
                   <div className="p-2 border-r border-border">Référence</div>
                   <div className="p-2 border-r border-border">Désignation</div>
                   <div className="p-2 text-right">Prix HT</div>
                 </div>
-                {xlsxRows.slice(0, 6).map((r, i) => (
-                  <div key={i} className={`grid grid-cols-[32px_100px_1fr_70px] ${i % 2 === 0 ? '' : 'bg-muted/40'}`}>
-                    <div className="p-2 text-center text-muted-foreground border-r border-border">{r.numero}</div>
+                {parsedRows.slice(0, 6).map((r, i) => (
+                  <div key={i} className={`grid ${parsedSource === 'image' ? 'grid-cols-[100px_1fr_70px]' : 'grid-cols-[32px_100px_1fr_70px]'} ${i % 2 === 0 ? '' : 'bg-muted/40'}`}>
+                    {parsedSource !== 'image' && <div className="p-2 text-center text-muted-foreground border-r border-border">{r.numero}</div>}
                     <div className="p-2 font-mono text-primary border-r border-border truncate">{r.reference}</div>
                     <div className="p-2 border-r border-border truncate">{r.designation || <span className="text-muted-foreground italic">—</span>}</div>
                     <div className="p-2 text-right font-semibold">{r.prix != null ? `${r.prix} €` : '—'}</div>
                   </div>
                 ))}
-                {xlsxRows.length > 6 && (
+                {parsedRows.length > 6 && (
                   <div className="p-2 text-center text-muted-foreground bg-muted/20">
-                    + {xlsxRows.length - 6} autres produits…
+                    + {parsedRows.length - 6} autres produits…
                   </div>
                 )}
               </div>
-              <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.txt" onChange={handleFileUpload} className="hidden" />
+              <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.txt,image/*" onChange={handleFileUpload} className="hidden" />
             </div>
           ) : (
             <div
@@ -199,13 +271,17 @@ export default function ImportZone({ onImport, isLoading }) {
                 Cliquez ou glissez votre fichier ici
               </p>
               <p className="text-sm text-muted-foreground">
-                Formats acceptés : .csv, .xlsx, .txt
+                Formats acceptés : .csv, .xlsx, .txt, images (.png, .jpg)
               </p>
-              <p className="text-xs text-muted-foreground mt-1 text-primary/70">✓ Format MAILING (N° | Référence | Désignation | Prix HT) détecté automatiquement</p>
+              <p className="text-xs text-muted-foreground mt-1 text-primary/70">✓ Format MAILING et captures d'écran détectés automatiquement</p>
+              <div className="flex items-center justify-center gap-4 mt-3 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1"><FileSpreadsheet className="w-3 h-3" /> Excel/CSV</span>
+                <span className="flex items-center gap-1"><ImageIcon className="w-3 h-3" /> Image (OCR IA)</span>
+              </div>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,.xlsx,.xls,.txt"
+                accept=".csv,.xlsx,.xls,.txt,image/*"
                 onChange={handleFileUpload}
                 className="hidden"
               />
@@ -231,8 +307,8 @@ export default function ImportZone({ onImport, isLoading }) {
           <div className="mt-4 flex justify-end">
             <Button
               size="lg"
-              disabled={(!rawText.trim() && !xlsxRows) || isLoading}
-              onClick={() => onImport(rawText, importName, xlsxRows)}
+              disabled={(!rawText.trim() && !parsedRows) || isLoading || isOcrLoading}
+              onClick={() => onImport(rawText, importName, parsedRows)}
               className="gap-2 px-8 shadow-lg shadow-primary/25"
             >
               {isLoading ? (
