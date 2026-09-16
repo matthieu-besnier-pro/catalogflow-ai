@@ -126,15 +126,39 @@ async function rankValidImages(urls, ctx, maxTest = 15) {
     .sort((a, b) => (b.score - a.score) || (Number(b.cutout) - Number(a.cutout)));
 }
 
+// Ré-héberge une image externe sur Base44 pour la rendre analysable par le LLM.
+// `file_urls` d'InvokeLLM attend une URL hébergée Base44 (issue de UploadFile),
+// pas une URL externe → sans ré-hébergement, le modèle ne "voit" pas l'image.
+async function rehostImage(core, imageUrl) {
+  try {
+    const res = await fetch(imageUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      signal: AbortSignal.timeout(9000)
+    });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    if (!blob || blob.size === 0) return null;
+    const type = blob.type && blob.type.startsWith('image/') ? blob.type : 'image/jpeg';
+    const ext = (type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+    const file = new File([blob], `candidate.${ext}`, { type });
+    const up = await core.UploadFile({ file });
+    return up?.file_url || null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Vérification visuelle (garde-fou anti hors-sujet) ──
 // Renvoie { matches: true|false|null } ; null = vérification impossible (on ne rejette pas).
-// NB : nécessite que Core.InvokeLLM accepte l'entrée image via `file_urls` (multimodal).
-async function verifyImageMatch(llm, imageUrl, product, enrichmentResult) {
+async function verifyImageMatch(core, imageUrl, product, enrichmentResult) {
   if (!imageUrl) return { matches: false, reason: 'URL vide' };
+  // On ré-héberge l'image ; si impossible, on ne peut pas vérifier → null (fail-safe)
+  const hostedUrl = await rehostImage(core, imageUrl);
+  if (!hostedUrl) return { matches: null, reason: 'Image non ré-hébergée pour analyse' };
   try {
-    const res = await llm.InvokeLLM({
-      model: 'gemini_3_1_pro',
-      file_urls: [imageUrl],
+    // Pas de `model` forcé : on utilise le modèle par défaut de l'app (déjà capable de lire les images, cf. OCR import)
+    const res = await core.InvokeLLM({
+      file_urls: [hostedUrl],
       prompt: `Tu es un contrôleur qualité de catalogue produit.
 Observe UNIQUEMENT l'image fournie et dis si elle représente bien ce produit :
 
@@ -239,17 +263,38 @@ Deno.serve(async (req) => {
       if (candidates.length > 0) {
         candidates.sort((a, b) => new Date(b.updated_date) - new Date(a.updated_date));
         const cached = candidates[0];
+
+        // Ne PAS réutiliser aveuglément la photo cachée : elle peut être fausse (image
+        // héritée d'un ancien run). On la re-vérifie visuellement avant de la garder.
+        let cachedPhoto = cached.photo_url || '';
+        let cachedSourceImage = cached.source_image || '';
+        let cachedStatut = cached.statut_validation || 'Validé partiel';
+        let cachedConfiance = cached.niveau_confiance || 'Moyen';
+        let cacheNote = '';
+        if (cachedPhoto) {
+          const v = await verifyImageMatch(base44.asServiceRole.integrations.Core, cachedPhoto, product, {
+            designation: cached.designation, marque: cached.marque, categorie: cached.categorie
+          });
+          if (v.matches === false) {
+            cachedPhoto = '';
+            cachedSourceImage = '';
+            cachedStatut = 'À vérifier';
+            cachedConfiance = 'Faible';
+            cacheNote = 'Photo héritée rejetée (non conforme au produit).';
+          }
+        }
+
         const reuseData = {
           designation: cached.designation || '',
           petit_descriptif: cached.petit_descriptif || '',
-          photo_url: cached.photo_url || '',
+          photo_url: cachedPhoto,
           marque: product.marque || cached.marque || '',
           categorie: cached.categorie || '',
           source_info: cached.source_info || '',
-          source_image: cached.source_image || '',
-          niveau_confiance: cached.niveau_confiance || 'Moyen',
-          statut_validation: cached.statut_validation || 'Validé partiel',
-          commentaire: `[Réutilisé] ${cached.commentaire || ''}`.trim(),
+          source_image: cachedSourceImage,
+          niveau_confiance: cachedConfiance,
+          statut_validation: cachedStatut,
+          commentaire: `[Réutilisé] ${cacheNote} ${cached.commentaire || ''}`.trim(),
           enriched: true
         };
         await base44.entities.Product.update(productId, reuseData);
