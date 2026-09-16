@@ -45,6 +45,38 @@ function generateRefVariants(reference) {
   return [...variants].filter(v => v && v.length >= 3);
 }
 
+// Normalise une chaîne pour comparaison (marque, etc.)
+function normalizeStr(s) {
+  return (s || '')
+    .toString()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function hostnameOf(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
+}
+
+// Score un candidat image selon la présence de la référence / marque dans l'URL
+function scoreImageUrl(url, ctx) {
+  const u = (url || '').toLowerCase();
+  let score = 0;
+  const ref = (ctx.reference || '').toLowerCase();
+  if (ref && ref.length >= 4 && u.includes(ref)) score += 6;
+  for (const v of ctx.refVariants || []) {
+    const vv = (v || '').toLowerCase();
+    if (vv.length >= 4 && vv !== ref && u.includes(vv)) { score += 3; break; }
+  }
+  const marqueWords = normalizeStr(ctx.marque).split(' ').filter(w => w.length >= 3);
+  for (const w of marqueWords) {
+    if (u.includes(w)) { score += 2; break; }
+  }
+  return score;
+}
+
 // Recherche d'images via DuckDuckGo — supporte plusieurs requêtes
 async function fetchDuckDuckGoImages(queries) {
   const allUrls = [];
@@ -82,23 +114,59 @@ async function fetchDuckDuckGoImages(queries) {
   return [...new Set(allUrls)];
 }
 
-// Sélectionne la meilleure image parmi une liste (préfère PNG/détouré)
-async function selectBestImage(urls, maxTest = 12) {
-  const toTest = urls.slice(0, maxTest);
+// Classe les images valides d'une liste par pertinence (score réf/marque, puis détourage)
+async function rankValidImages(urls, ctx, maxTest = 15) {
+  const toTest = [...new Set(urls)].slice(0, maxTest);
   const results = await Promise.all(toTest.map(async (u) => {
     const r = await validateImageUrl(u);
-    return { url: u, ...r };
+    return { url: u, valid: r.valid, cutout: r.cutout, score: scoreImageUrl(u, ctx) };
   }));
+  return results
+    .filter(r => r.valid)
+    .sort((a, b) => (b.score - a.score) || (Number(b.cutout) - Number(a.cutout)));
+}
 
-  // 1. Préférer les PNG valides (détourés)
-  const cutouts = results.filter(r => r.valid && r.cutout);
-  if (cutouts.length > 0) return { url: cutouts[0].url, cutout: true };
+// ── Vérification visuelle (garde-fou anti hors-sujet) ──
+// Renvoie { matches: true|false|null } ; null = vérification impossible (on ne rejette pas).
+// NB : nécessite que Core.InvokeLLM accepte l'entrée image via `file_urls` (multimodal).
+async function verifyImageMatch(llm, imageUrl, product, enrichmentResult) {
+  if (!imageUrl) return { matches: false, reason: 'URL vide' };
+  try {
+    const res = await llm.InvokeLLM({
+      model: 'gemini_3_1_pro',
+      file_urls: [imageUrl],
+      prompt: `Tu es un contrôleur qualité de catalogue produit.
+Observe UNIQUEMENT l'image fournie et dis si elle représente bien ce produit :
 
-  // 2. Sinon, première image valide
-  const anyValid = results.find(r => r.valid);
-  if (anyValid) return { url: anyValid.url, cutout: false };
+- Désignation : ${enrichmentResult.designation || product.intitule_origine || 'inconnue'}
+- Référence : ${product.reference}
+- Marque : ${enrichmentResult.marque || product.marque || 'inconnue'}
+- Catégorie : ${enrichmentResult.categorie || 'inconnue'}
+- Libellé d'origine : ${product.intitule_origine || 'non fourni'}
 
-  return null;
+Réponds "true" pour matches SEULEMENT si l'objet visible sur l'image correspond au TYPE de produit décrit
+(même famille : ex. pièce agricole, disque, pointe de soc, dent de semoir…).
+Réponds "false" si l'image montre un objet sans rapport (ex. bouteille, logo, bannière, produit d'une autre famille),
+une image générique/placeholder, ou si tu as un doute sérieux.`,
+      response_json_schema: {
+        type: 'object',
+        properties: {
+          matches: { type: 'boolean' },
+          confidence: { type: 'string', enum: ['Élevé', 'Moyen', 'Faible'] },
+          reason: { type: 'string' }
+        },
+        required: ['matches']
+      }
+    });
+    return {
+      matches: res?.matches === true,
+      confidence: res?.confidence || 'Moyen',
+      reason: res?.reason || ''
+    };
+  } catch {
+    // Vérification indisponible → on ne bloque pas (fail-safe)
+    return { matches: null, reason: 'Vérification visuelle indisponible' };
+  }
 }
 
 // Scrape un site officiel connu pour récupérer une image produit de qualité
@@ -156,13 +224,17 @@ Deno.serve(async (req) => {
     const product = products[0];
 
     // ── Étape 0 : Cache — réutilise si déjà enrichi dans un autre lot ──
-    if (product.reference) {
+    // Réutilisation UNIQUEMENT si la marque correspond, pour éviter les collisions
+    // de références entre fabricants différents (ex : même n° chez deux marques).
+    if (product.reference && product.marque) {
+      const productMarque = normalizeStr(product.marque);
       const existing = await base44.asServiceRole.entities.Product.filter({ reference: product.reference });
       const candidates = existing.filter(p =>
         p.id !== productId &&
         p.enriched === true &&
         p.statut_validation !== 'Introuvable' &&
-        p.designation
+        p.designation &&
+        p.marque && normalizeStr(p.marque) === productMarque
       );
       if (candidates.length > 0) {
         candidates.sort((a, b) => new Date(b.updated_date) - new Date(a.updated_date));
@@ -195,10 +267,15 @@ Deno.serve(async (req) => {
 
     // ── Étape 1 : LLM enrichissement (claude_sonnet pour meilleure précision) ──
     const refVariants = generateRefVariants(product.reference);
+    // Requêtes ciblées marque + référence (exacte puis variantes), sans mots parasites
     const searchQuery = [product.marque, product.reference, product.intitule_origine].filter(Boolean).join(' ');
-    const searchQueryCutout = `${searchQuery} fond blanc détouré PNG produit officiel`;
+    const ddgQueries = [
+      [product.marque, product.reference].filter(Boolean).join(' '),
+      [product.marque, product.intitule_origine].filter(Boolean).join(' '),
+      ...refVariants.slice(0, 2).map(v => [product.marque, v].filter(Boolean).join(' '))
+    ].filter(q => q && q.trim().length >= 3);
 
-    // Lancement en parallèle : LLM + images DDG (requête normale + requête fond blanc)
+    // Lancement en parallèle : LLM + images DDG
     const [enrichmentResult, ddgImageUrls] = await Promise.all([
       base44.asServiceRole.integrations.Core.InvokeLLM({
         model: 'gemini_3_1_pro',
@@ -245,54 +322,94 @@ Retourne :
           }
         }
       }),
-      // Deux requêtes DDG en parallèle : normale + spécifique fond blanc
-      fetchDuckDuckGoImages([searchQuery, searchQueryCutout, ...refVariants.slice(0, 2).map(v => `${product.marque || ''} ${v}`.trim())])
+      // Requêtes DDG ciblées marque + référence
+      fetchDuckDuckGoImages(ddgQueries)
     ]);
 
-    // ── Étape 2 : Sélection de la meilleure image ──
+    // ── Étape 2 : Constitution d'une liste de candidats images classés ──
+    const imgCtx = { reference: product.reference, refVariants, marque: enrichmentResult.marque || product.marque };
+    const candidates = []; // { url, cutout, source }
+    const seen = new Set();
+    const pushCandidate = (url, cutout, source) => {
+      if (!url || seen.has(url)) return;
+      seen.add(url);
+      candidates.push({ url, cutout: !!cutout, source: source || hostnameOf(url) });
+    };
+
+    // 2a. URL proposée par le LLM (priorité — issue de la page produit)
+    if (enrichmentResult.photo_url) {
+      const r = await validateImageUrl(enrichmentResult.photo_url);
+      if (r.valid) pushCandidate(enrichmentResult.photo_url, r.cutout, enrichmentResult.source_image || hostnameOf(enrichmentResult.photo_url));
+    }
+
+    // 2b. Image du site officiel (souvent détourée et fiable)
+    if (enrichmentResult.source_info) {
+      const siteImg = await fetchOfficialSiteImage(enrichmentResult.marque, product.reference, enrichmentResult.source_info);
+      if (siteImg) pushCandidate(siteImg.url, siteImg.cutout, siteImg.source);
+    }
+
+    // 2c. Résultats DuckDuckGo classés par pertinence (réf/marque dans l'URL, puis détourage)
+    const rankedDdg = await rankValidImages(ddgImageUrls, imgCtx, 15);
+    for (const c of rankedDdg) pushCandidate(c.url, c.cutout, hostnameOf(c.url) || 'duckduckgo');
+
+    // ── Étape 3 : Vérification visuelle — on garde le 1er candidat confirmé ──
     let finalPhotoUrl = '';
     let finalSourceImage = '';
     let isPhotoCutout = false;
+    let imageVerified = null;   // true confirmé / null non vérifié / false tous rejetés
+    let imageComment = '';
 
-    // 2a. URL proposée par le LLM — la valider en priorité
-    if (enrichmentResult.photo_url) {
-      const r = await validateImageUrl(enrichmentResult.photo_url);
-      if (r.valid) {
-        finalPhotoUrl = enrichmentResult.photo_url;
-        finalSourceImage = enrichmentResult.source_image || (() => { try { return new URL(enrichmentResult.photo_url).hostname.replace('www.', ''); } catch { return ''; } })();
-        isPhotoCutout = r.cutout;
+    const MAX_VERIFY = 4;
+    let sawDefiniteNo = false;
+    let sawError = false;
+    let checkedCount = 0;
+
+    for (const c of candidates) {
+      if (checkedCount >= MAX_VERIFY) break;
+      checkedCount++;
+      const v = await verifyImageMatch(base44.asServiceRole.integrations.Core, c.url, product, enrichmentResult);
+      if (v.matches === true) {
+        finalPhotoUrl = c.url; finalSourceImage = c.source; isPhotoCutout = c.cutout;
+        imageVerified = true;
+        break;
       }
+      if (v.matches === false) sawDefiniteNo = true;
+      if (v.matches === null) sawError = true;
     }
 
-    // 2b. Si l'image LLM n'est pas détourée, tenter de récupérer une meilleure image sur le site source
-    if (finalPhotoUrl && !isPhotoCutout && enrichmentResult.source_info) {
-      const siteImg = await fetchOfficialSiteImage(enrichmentResult.marque, product.reference, enrichmentResult.source_info);
-      if (siteImg && siteImg.cutout) {
-        finalPhotoUrl = siteImg.url;
-        finalSourceImage = siteImg.source;
-        isPhotoCutout = true;
-      }
+    // Fail-safe : si la vérification visuelle est indisponible (aucune réponse fiable),
+    // on ne prive pas le produit d'image → on garde le meilleur candidat, mais on le signale.
+    if (!finalPhotoUrl && sawError && !sawDefiniteNo && candidates.length > 0) {
+      const c = candidates[0];
+      finalPhotoUrl = c.url; finalSourceImage = c.source; isPhotoCutout = c.cutout;
+      imageVerified = null;
+      imageComment = 'Image non vérifiée (contrôle visuel indisponible), à valider manuellement.';
+    } else if (!finalPhotoUrl && candidates.length > 0) {
+      // Des images ont été trouvées mais rejetées comme non conformes → mieux vaut pas d'image que fausse
+      imageVerified = false;
+      imageComment = `${candidates.length} image(s) trouvée(s) mais rejetée(s) car non conformes au produit.`;
     }
 
-    // 2c. Pas d'image LLM valide → chercher via DuckDuckGo
-    if (!finalPhotoUrl && ddgImageUrls.length > 0) {
-      const best = await selectBestImage(ddgImageUrls, 15);
-      if (best) {
-        finalPhotoUrl = best.url;
-        isPhotoCutout = best.cutout;
-        try { finalSourceImage = new URL(best.url).hostname.replace('www.', ''); } catch { finalSourceImage = 'duckduckgo'; }
-      }
+    // Confiance : plafonnée à "Faible" si l'image n'a pas pu être confirmée visuellement
+    let niveauConfiance = enrichmentResult.niveau_confiance || 'Faible';
+    if (finalPhotoUrl && imageVerified !== true) niveauConfiance = 'Faible';
+
+    // Statut : sans image confirmée, on force au moins "À vérifier" pour attirer l'œil
+    let statutValidation;
+    if (finalPhotoUrl && imageVerified === true) {
+      statutValidation = enrichmentResult.statut_validation || 'Validé partiel';
+    } else if (finalPhotoUrl) {
+      statutValidation = 'À vérifier';
+    } else {
+      statutValidation = (enrichmentResult.statut_validation === 'Validé')
+        ? 'Validé partiel'
+        : (enrichmentResult.statut_validation || 'À vérifier');
     }
 
-    // 2d. Fallback : scrape site officiel depuis source_info
-    if (!finalPhotoUrl && enrichmentResult.source_info) {
-      const siteImg = await fetchOfficialSiteImage(enrichmentResult.marque, product.reference, enrichmentResult.source_info);
-      if (siteImg) {
-        finalPhotoUrl = siteImg.url;
-        finalSourceImage = siteImg.source;
-        isPhotoCutout = siteImg.cutout;
-      }
-    }
+    const commentaire = [enrichmentResult.commentaire || '', imageComment].filter(Boolean).join(' — ').trim();
+
+    const suffixeSource = isPhotoCutout ? ' (détouré)' : '';
+    const suffixeVerif = imageVerified === true ? ' ✓ vérifié' : '';
 
     const updateData = {
       designation: enrichmentResult.designation || '',
@@ -301,12 +418,10 @@ Retourne :
       marque: enrichmentResult.marque || product.marque || '',
       categorie: enrichmentResult.categorie || '',
       source_info: enrichmentResult.source_info || '',
-      source_image: finalSourceImage + (isPhotoCutout ? ' (détouré)' : ''),
-      niveau_confiance: enrichmentResult.niveau_confiance || 'Faible',
-      statut_validation: finalPhotoUrl
-        ? enrichmentResult.statut_validation || 'Validé partiel'
-        : (enrichmentResult.statut_validation === 'Validé' ? 'Validé partiel' : enrichmentResult.statut_validation || 'À vérifier'),
-      commentaire: enrichmentResult.commentaire || '',
+      source_image: finalPhotoUrl ? (finalSourceImage + suffixeSource + suffixeVerif) : '',
+      niveau_confiance: niveauConfiance,
+      statut_validation: statutValidation,
+      commentaire,
       enriched: true
     };
 
