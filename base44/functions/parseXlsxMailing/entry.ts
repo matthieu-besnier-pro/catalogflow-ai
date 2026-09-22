@@ -17,13 +17,19 @@ Deno.serve(async (req) => {
 
     const products = [];
 
+    const toNum = (v) => {
+      if (v === null || v === undefined || v === '') return null;
+      const p = parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
+      return isNaN(p) ? null : p;
+    };
+
     for (const row of rows) {
       const ref = String(row.reference || '').trim();
       if (!ref || ref.toLowerCase() === 'reference') continue;
 
-      const prix = row.prix !== null && row.prix !== undefined && row.prix !== ''
-        ? parseFloat(String(row.prix).replace(',', '.'))
-        : null;
+      // Prix HT (principal) et TTC. Rétro-compat : `prix` = HT si prix_ht absent.
+      const prixHt = toNum(row.prix_ht ?? row.prix);
+      const prixTtc = toNum(row.prix_ttc);
 
       const commentaire = String(row.commentaire || '').trim();
       const designation = String(row.designation || '').trim();
@@ -34,9 +40,10 @@ Deno.serve(async (req) => {
         intitule_origine: designation,
         petit_descriptif: '',
         marque: '',
-        tarif_promo_ht: isNaN(prix) ? null : prix,
+        tarif_promo_ht: prixHt,   // prix principal (HT), suit la convention de l'app
         tarif_normal_ht: null,
-        commentaire: commentaire || (isNaN(prix) || prix === null ? 'Prix non fourni' : ''),
+        tarif_ttc: prixTtc,       // prix TTC importé (affichage "TTC en gros" à venir)
+        commentaire: commentaire || (prixHt === null ? 'Prix non fourni' : ''),
         statut_validation: 'À vérifier',
         enriched: false
       });

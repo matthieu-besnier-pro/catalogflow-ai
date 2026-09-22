@@ -17,6 +17,42 @@ export default function ImportZone({ onImport, isLoading }) {
   const [isOcrLoading, setIsOcrLoading] = useState(false);
   const fileInputRef = useRef(null);
 
+  // Parse le format Agrizone : colonnes Référence Agrizone (AGZ…) | code fab | Désignation | Prix HT | Prix TTC | Commentaires
+  // Ignore les lignes d'en-tête et de catégorie (ex : « Tout pour votre tracteur »).
+  const parseAgrizoneXlsx = (workbook) => {
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+    const toNum = (v) => {
+      if (v === null || v === undefined || v === '') return null;
+      const p = parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
+      return isNaN(p) ? null : p;
+    };
+    const rows = [];
+    let n = 0;
+    for (const row of raw) {
+      if (!row || row.length === 0) continue;
+      const ref = String(row[0] ?? '').trim();
+      if (!ref) continue;
+      // Seules les lignes dont la 1re colonne est une référence Agrizone (AGZ…) sont des produits
+      if (!/^AGZ/i.test(ref)) continue;
+      const designation = String(row[2] ?? '').trim();
+      const prixHt = toNum(row[3]);
+      const prixTtc = toNum(row[4]);
+      const commentaire = String(row[5] ?? '').trim();
+      n += 1;
+      rows.push({
+        numero: n,
+        reference: ref,
+        designation,
+        prix_ht: prixHt,
+        prix_ttc: prixTtc,
+        prix: prixHt, // rétro-compat : prix principal = HT
+        commentaire
+      });
+    }
+    return rows;
+  };
+
   // Détecte et parse le format MAILINGRDV : PAGE X + colonnes N°/REFERENCE/DESIGNATION/PRIX/COMMENTAIRE
   const parseMailingXlsx = (workbook) => {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -64,11 +100,17 @@ export default function ImportZone({ onImport, isLoading }) {
     if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: 'array' });
-      const rows = parseMailingXlsx(workbook);
+      // Essaie d'abord le format Agrizone, puis le format MAILING
+      let rows = parseAgrizoneXlsx(workbook);
+      let source = 'agrizone';
+      if (rows.length === 0) {
+        rows = parseMailingXlsx(workbook);
+        source = 'xlsx';
+      }
       if (rows.length > 0) {
         setParsedRows(rows);
         setParsedFileName(file.name);
-        setParsedSource('xlsx');
+        setParsedSource(source);
         if (!importName) setImportName(file.name.replace(/\.[^.]+$/, ''));
         return;
       }
@@ -229,7 +271,7 @@ Retourne TOUS les produits visibles sur l'image, sans en oublier aucun. Si une c
                 <div className="flex-1">
                   <p className="font-semibold text-emerald-800 text-sm">{parsedFileName}</p>
                   <p className="text-xs text-emerald-600">
-                    {parsedRows.length} produits détectés {parsedSource === 'image' ? 'depuis l\'image' : 'au format MAILING'}
+                    {parsedRows.length} produits détectés {parsedSource === 'image' ? 'depuis l\'image' : parsedSource === 'agrizone' ? 'au format Agrizone' : 'au format MAILING'}
                   </p>
                 </div>
                 <button
