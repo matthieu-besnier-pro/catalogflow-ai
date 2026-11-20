@@ -42,12 +42,20 @@ export default function Home() {
             </div>
             <span className="font-bold text-lg">CatalogIA</span>
           </div>
-          <button
-            onClick={() => navigate('/history')}
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Mes imports
-          </button>
+          <nav className="flex items-center gap-5">
+            <button
+              onClick={() => navigate('/presentation')}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Présentation
+            </button>
+            <button
+              onClick={() => navigate('/history')}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Mes imports
+            </button>
+          </nav>
         </div>
       </header>
 

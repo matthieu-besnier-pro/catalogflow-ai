@@ -15,6 +15,7 @@ import Home from '@/pages/Home';
 import CatalogView from '@/pages/CatalogView';
 import History from '@/pages/History';
 import CatagriEditor from '@/pages/CatagriEditor';
+import Presentation from '@/pages/Presentation';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -48,6 +49,7 @@ const AuthenticatedApp = () => {
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
         <Route path="/" element={<Home />} />
+        <Route path="/presentation" element={<Presentation />} />
         <Route path="/catalog/:batchId" element={<CatalogView />} />
         <Route path="/history" element={<History />} />
         <Route path="/catagri" element={<CatagriEditor />} />
