@@ -1,10 +1,10 @@
 import React from "react";
-import { Sparkles, UploadCloud, Wand2, FileDown } from "lucide-react";
+import { Sparkles, UploadCloud, Wand2, Bot } from "lucide-react";
 
 const FEATURES = [
   { icon: UploadCloud, title: "Import flexible", desc: "Collez une liste, un fichier Excel ou une photo de catalogue." },
   { icon: Wand2, title: "Enrichissement IA", desc: "Désignation, descriptif, photo, marque et prix trouvés automatiquement." },
-  { icon: FileDown, title: "Export CAT'AGRI", desc: "Un catalogue prêt à publier en quelques minutes." },
+  { icon: Bot, title: "Dossier prêt pour l'IA", desc: "Un dossier complet à réinjecter dans Claude ou ChatGPT." },
 ];
 
 export default function AuthLayout({ icon: Icon, title, subtitle, footer, children }) {

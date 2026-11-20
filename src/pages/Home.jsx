@@ -55,6 +55,12 @@ export default function Home() {
             >
               Mes imports
             </button>
+            <button
+              onClick={() => navigate('/users')}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Utilisateurs
+            </button>
           </nav>
         </div>
       </header>

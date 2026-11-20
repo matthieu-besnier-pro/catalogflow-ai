@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import {
   Sparkles, ArrowRight, ArrowLeft, UploadCloud, Wand2, CheckCircle2, FileDown,
   ClipboardPaste, FileSpreadsheet, ImageIcon, ShieldCheck, Image as ImageLucide,
-  Tag, Zap, HelpCircle
+  Tag, Zap, HelpCircle, Bot, FolderCheck
 } from "lucide-react";
 
 const STEPS = [
@@ -43,19 +43,23 @@ const STEPS = [
     ],
   },
   {
-    icon: FileDown,
+    icon: FolderCheck,
     color: "from-orange-500 to-amber-500",
-    title: "4 · Exporter le catalogue",
-    desc: "Un fichier prêt à l'emploi, sans ressaisie.",
+    title: "4 · Récupérer le dossier complet",
+    desc: "Un dossier structuré, prêt à donner à une IA générative.",
     points: [
-      { icon: FileDown, text: "Export CSV / Excel du catalogue enrichi" },
-      { icon: ArrowRight, text: "Envoi direct vers CAT'AGRI" },
+      { icon: FileDown, text: "Export du dossier enrichi (CSV / Excel)" },
+      { icon: Bot, text: "À copier-coller ou importer dans Claude / ChatGPT" },
       { icon: CheckCircle2, text: "Historique de tous vos imports, réutilisables" },
     ],
   },
 ];
 
 const FAQ = [
+  {
+    q: "Comment utiliser le dossier dans Claude ou ChatGPT ?",
+    a: "Exportez le dossier enrichi, puis copiez-collez son contenu (ou importez le fichier) dans Claude ou ChatGPT. Vous pouvez ensuite demander à l'IA de rédiger des fiches, des e-mails, des descriptions, etc. — elle s'appuiera sur des données réelles et fiables.",
+  },
   {
     q: "Dois-je préparer mon fichier d'une façon particulière ?",
     a: "Non. Collez votre liste, déposez votre Excel ou même une capture d'écran. L'outil détecte automatiquement les références, désignations et prix.",
@@ -109,8 +113,10 @@ export default function Presentation() {
               CatalogIA, en 2 minutes
             </h1>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Un outil interne qui transforme une simple liste de références en catalogue
-              professionnel enrichi (désignations, descriptifs, photos, prix) — prêt à exporter.
+              Un outil interne qui transforme une simple liste de références en un
+              <span className="text-foreground font-semibold"> dossier produit complet</span> (désignations,
+              descriptifs, photos, prix, sources) — prêt à être réinjecté dans une IA générative
+              comme <span className="text-foreground font-semibold">Claude</span> ou <span className="text-foreground font-semibold">ChatGPT</span>.
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
               <Button size="lg" className="gap-2 px-7 shadow-lg shadow-primary/25" onClick={() => navigate("/")}>
@@ -123,13 +129,45 @@ export default function Presentation() {
           </motion.div>
         </section>
 
+        {/* Objectif : dossier pour IA générative */}
+        <section className="pb-4">
+          <div className="rounded-2xl border border-primary/20 bg-primary/5 p-6 md:p-8">
+            <div className="flex items-start gap-4">
+              <div className="shrink-0 w-11 h-11 rounded-xl bg-primary flex items-center justify-center">
+                <Bot className="w-6 h-6 text-primary-foreground" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-foreground">L'objectif : un dossier prêt pour l'IA générative</h2>
+                <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed max-w-3xl">
+                  Le but de CatalogIA n'est pas seulement de produire un joli tableau : c'est de constituer
+                  un <span className="font-medium text-foreground">dossier produit complet et structuré</span> que
+                  vous pourrez <span className="font-medium text-foreground">copier-coller ou importer directement dans Claude ou ChatGPT</span>.
+                  L'IA générative s'appuie alors sur des données fiables plutôt que d'inventer.
+                </p>
+                <div className="mt-4 grid sm:grid-cols-3 gap-3">
+                  {[
+                    "Rédiger des fiches produits ou des argumentaires de vente",
+                    "Générer des descriptions, e-mails ou posts marketing",
+                    "Répondre à des questions clients à partir du catalogue",
+                  ].map((u) => (
+                    <div key={u} className="flex items-start gap-2 bg-card rounded-lg border border-border p-3">
+                      <CheckCircle2 className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                      <span className="text-xs text-foreground leading-snug">{u}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* Pour qui / pourquoi */}
         <section className="pb-6">
           <div className="grid sm:grid-cols-3 gap-4">
             {[
               { k: "Avant", v: "Des heures à chercher photos, descriptifs et prix, référence par référence." },
               { k: "Avec CatalogIA", v: "L'IA fait la recherche, vous ne faites que vérifier et valider." },
-              { k: "Résultat", v: "Un catalogue homogène et pro, exporté en quelques clics." },
+              { k: "Résultat", v: "Un dossier complet et fiable, prêt à réinjecter dans une IA générative." },
             ].map((c, i) => (
               <motion.div
                 key={c.k}
@@ -219,9 +257,9 @@ export default function Presentation() {
         {/* CTA final */}
         <section className="pb-20">
           <div className="rounded-2xl bg-gradient-to-br from-primary to-[hsl(225,73%,40%)] text-primary-foreground p-8 md:p-10 text-center">
-            <h2 className="text-2xl md:text-3xl font-extrabold">Prêt à créer votre premier catalogue ?</h2>
+            <h2 className="text-2xl md:text-3xl font-extrabold">Prêt à constituer votre premier dossier ?</h2>
             <p className="mt-2 text-primary-foreground/80 max-w-xl mx-auto">
-              Lancez un import avec une poignée de références pour voir le résultat.
+              Lancez un import avec une poignée de références, puis donnez le dossier à votre IA.
             </p>
             <Button
               size="lg"
