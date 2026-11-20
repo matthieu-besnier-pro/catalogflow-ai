@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
+import { appParams } from '@/lib/app-params';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Loader2, ShieldCheck, User as UserIcon, Mail, Lock, Users as UsersIcon } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { toast } from "@/components/ui/use-toast";
+import { ArrowLeft, Loader2, ShieldCheck, User as UserIcon, Mail, Lock, Users as UsersIcon, UserPlus, Send } from "lucide-react";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { motion } from 'framer-motion';
@@ -24,6 +30,47 @@ export default function Users() {
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === 'admin';
   const [savingId, setSavingId] = useState(null);
+
+  // Invitation
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('user');
+  const [inviteMsg, setInviteMsg] = useState('');
+  const [inviting, setInviting] = useState(false);
+  const [inviteError, setInviteError] = useState('');
+
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail.trim());
+
+  const handleInvite = async (e) => {
+    e.preventDefault();
+    setInviteError('');
+    if (!emailValid) {
+      setInviteError('Adresse e-mail invalide.');
+      return;
+    }
+    setInviting(true);
+    try {
+      await base44.functions.invoke('inviteUser', {
+        email: inviteEmail.trim(),
+        role: inviteRole,
+        appUrl: appParams.appBaseUrl || window.location.origin,
+        inviterName: currentUser?.full_name || currentUser?.email,
+        personalMessage: inviteMsg.trim(),
+      });
+      toast({
+        title: 'Invitation envoyée',
+        description: `Un e-mail d'invitation a été envoyé à ${inviteEmail.trim()}.`,
+      });
+      setInviteOpen(false);
+      setInviteEmail('');
+      setInviteRole('user');
+      setInviteMsg('');
+    } catch (err) {
+      setInviteError(err?.message || "Échec de l'envoi de l'invitation.");
+    } finally {
+      setInviting(false);
+    }
+  };
 
   const { data: users = [], isLoading, isError } = useQuery({
     queryKey: ['users'],
@@ -57,12 +104,20 @@ export default function Users() {
             </Button>
             <h1 className="font-bold text-lg">Utilisateurs</h1>
           </div>
-          {!isLoading && !isError && (
-            <Badge variant="outline" className="gap-1.5">
-              <UsersIcon className="w-3.5 h-3.5" />
-              {users.length} membre{users.length > 1 ? 's' : ''}
-            </Badge>
-          )}
+          <div className="flex items-center gap-3">
+            {!isLoading && !isError && (
+              <Badge variant="outline" className="gap-1.5">
+                <UsersIcon className="w-3.5 h-3.5" />
+                {users.length} membre{users.length > 1 ? 's' : ''}
+              </Badge>
+            )}
+            {isAdmin && (
+              <Button className="gap-2" onClick={() => setInviteOpen(true)}>
+                <UserPlus className="w-4 h-4" />
+                Inviter
+              </Button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -169,6 +224,85 @@ export default function Users() {
           </div>
         )}
       </main>
+
+      {/* Fenêtre d'invitation */}
+      <Dialog open={inviteOpen} onOpenChange={(o) => { if (!inviting) setInviteOpen(o); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <span className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+                <UserPlus className="w-5 h-5" />
+              </span>
+              Inviter un utilisateur
+            </DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleInvite} className="space-y-4 pt-1">
+            <p className="text-sm text-muted-foreground">
+              La personne recevra un e-mail d'invitation soigné avec un lien pour activer son accès à CatalogIA.
+            </p>
+
+            {inviteError && (
+              <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{inviteError}</div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="invite-email">Adresse e-mail</Label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                <Input
+                  id="invite-email"
+                  type="email"
+                  autoFocus
+                  placeholder="collegue@entreprise.fr"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  className="pl-10 h-11"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="invite-role">Rôle</Label>
+              <select
+                id="invite-role"
+                value={inviteRole}
+                onChange={(e) => setInviteRole(e.target.value)}
+                className="w-full h-11 rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+              >
+                <option value="user">Utilisateur</option>
+                <option value="admin">Administrateur</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="invite-msg">Message personnel <span className="text-muted-foreground font-normal">(facultatif)</span></Label>
+              <Textarea
+                id="invite-msg"
+                placeholder="Un petit mot d'accueil pour accompagner l'invitation…"
+                value={inviteMsg}
+                onChange={(e) => setInviteMsg(e.target.value)}
+                className="min-h-[80px] resize-y"
+                maxLength={400}
+              />
+            </div>
+
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button type="button" variant="outline" onClick={() => setInviteOpen(false)} disabled={inviting}>
+                Annuler
+              </Button>
+              <Button type="submit" className="gap-2" disabled={inviting || !emailValid}>
+                {inviting ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Envoi…</>
+                ) : (
+                  <><Send className="w-4 h-4" /> Envoyer l'invitation</>
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
