@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/use-toast";
-import { ArrowLeft, Loader2, ShieldCheck, User as UserIcon, Mail, Lock, Users as UsersIcon, UserPlus, Send } from "lucide-react";
+import { ArrowLeft, Loader2, ShieldCheck, User as UserIcon, Mail, Lock, Users as UsersIcon, UserPlus, Send, RefreshCw } from "lucide-react";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { motion } from 'framer-motion';
@@ -68,19 +68,24 @@ export default function Users() {
     }
   };
 
-  const { data: users = [], isLoading, isError } = useQuery({
+  const { data: users = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['users'],
-    queryFn: () => base44.entities.User.list('-created_date', 200)
+    queryFn: () => base44.functions.invoke('manageAppUsers', { action: 'list' }).then(r => r.data.users || [])
   });
 
   const changeRole = async (u, nextRole) => {
     if (u.role === nextRole) return;
     setSavingId(u.id);
     try {
-      await base44.entities.User.update(u.id, { role: nextRole });
+      const res = await base44.functions.invoke('manageAppUsers', { action: 'updateRole', userId: u.id, role: nextRole });
+      if (res.data?.error) throw new Error(res.data.error);
       queryClient.invalidateQueries({ queryKey: ['users'] });
     } catch (err) {
-      console.error('Maj rôle échouée:', err);
+      toast({
+        title: 'Modification impossible',
+        description: err?.response?.data?.error || err?.message || 'Réessayez dans un instant.',
+        variant: 'destructive'
+      });
     } finally {
       setSavingId(null);
     }
@@ -135,11 +140,19 @@ export default function Users() {
         ) : isError ? (
           <div className="text-center py-20">
             <Lock className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-            <p className="text-lg font-medium mb-2">Accès restreint</p>
-            <p className="text-sm text-muted-foreground max-w-md mx-auto">
-              La liste des utilisateurs n'est pas accessible avec votre compte. Demandez à un
-              administrateur de vous donner les droits nécessaires.
+            <p className="text-lg font-medium mb-2">
+              {isAdmin ? 'Impossible de charger la liste' : 'Accès restreint'}
             </p>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto mb-4">
+              {isAdmin
+                ? "Une erreur est survenue pendant le chargement des membres de l'application."
+                : "La liste des utilisateurs n'est pas accessible avec votre compte. Demandez à un administrateur de vous donner les droits nécessaires."}
+            </p>
+            {isAdmin && (
+              <Button variant="outline" onClick={() => refetch()} className="gap-2">
+                <RefreshCw className="w-4 h-4" /> Réessayer
+              </Button>
+            )}
           </div>
         ) : (
           <div className="space-y-3">
