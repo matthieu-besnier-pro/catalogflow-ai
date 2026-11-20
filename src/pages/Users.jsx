@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
-import { appParams } from '@/lib/app-params';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from "@/components/ui/button";
@@ -9,7 +8,6 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/use-toast";
 import { ArrowLeft, Loader2, ShieldCheck, User as UserIcon, Mail, Lock, Users as UsersIcon, UserPlus, Send } from "lucide-react";
@@ -35,7 +33,6 @@ export default function Users() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('user');
-  const [inviteMsg, setInviteMsg] = useState('');
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState('');
 
@@ -50,13 +47,7 @@ export default function Users() {
     }
     setInviting(true);
     try {
-      await base44.functions.invoke('inviteUser', {
-        email: inviteEmail.trim(),
-        role: inviteRole,
-        appUrl: appParams.appBaseUrl || window.location.origin,
-        inviterName: currentUser?.full_name || currentUser?.email,
-        personalMessage: inviteMsg.trim(),
-      });
+      await base44.users.inviteUser(inviteEmail.trim(), inviteRole);
       toast({
         title: 'Invitation envoyée',
         description: `Un e-mail d'invitation a été envoyé à ${inviteEmail.trim()}.`,
@@ -64,9 +55,14 @@ export default function Users() {
       setInviteOpen(false);
       setInviteEmail('');
       setInviteRole('user');
-      setInviteMsg('');
+      queryClient.invalidateQueries({ queryKey: ['users'] });
     } catch (err) {
-      setInviteError(err?.message || "Échec de l'envoi de l'invitation.");
+      const msg = String(err?.message || '');
+      setInviteError(
+        /already|existe|registered|member/i.test(msg)
+          ? 'Cette adresse correspond déjà à un utilisateur de l\'application.'
+          : "Échec de l'envoi de l'invitation. Vérifiez l'adresse et réessayez."
+      );
     } finally {
       setInviting(false);
     }
@@ -182,7 +178,7 @@ export default function Users() {
                               <Mail className="w-3 h-3" /> {u.email}
                             </span>
                           )}
-                          {u.created_date && (
+                          {u.created_date && !isNaN(new Date(u.created_date).getTime()) && (
                             <span>
                               Ajouté le {format(new Date(u.created_date), 'dd MMM yyyy', { locale: fr })}
                             </span>
@@ -192,7 +188,7 @@ export default function Users() {
 
                       {/* Rôle */}
                       <div className="shrink-0">
-                        {isAdmin ? (
+                        {isAdmin && !isSelf ? (
                           isSaving ? (
                             <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
                           ) : (
@@ -239,7 +235,7 @@ export default function Users() {
 
           <form onSubmit={handleInvite} className="space-y-4 pt-1">
             <p className="text-sm text-muted-foreground">
-              La personne recevra un e-mail d'invitation soigné avec un lien pour activer son accès à CatalogIA.
+              La personne recevra un e-mail d'invitation avec un lien pour activer son accès à CatalogFlow AI.
             </p>
 
             {inviteError && (
@@ -274,18 +270,6 @@ export default function Users() {
                 <option value="user">Utilisateur</option>
                 <option value="admin">Administrateur</option>
               </select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="invite-msg">Message personnel <span className="text-muted-foreground font-normal">(facultatif)</span></Label>
-              <Textarea
-                id="invite-msg"
-                placeholder="Un petit mot d'accueil pour accompagner l'invitation…"
-                value={inviteMsg}
-                onChange={(e) => setInviteMsg(e.target.value)}
-                className="min-h-[80px] resize-y"
-                maxLength={400}
-              />
             </div>
 
             <DialogFooter className="gap-2 sm:gap-0">
